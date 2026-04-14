@@ -83,11 +83,11 @@ type ConnCallbacks struct {
 
 // ConnConfig holds timer and window parameters.
 type ConnConfig struct {
-	T1       time.Duration // Acknowledgement timeout (default 10s)
-	T2       time.Duration // Response delay timeout (default 1s)
-	T3       time.Duration // Inactive link timeout (default 3m)
-	N2       int           // Maximum retry count (default 10)
-	Window   int           // Maximum outstanding I-frames, 1-7 (default 4)
+	T1     time.Duration // Acknowledgement timeout (default 10s)
+	T2     time.Duration // Response delay timeout (default 1s)
+	T3     time.Duration // Inactive link timeout (default 3m)
+	N2     int           // Maximum retry count (default 10)
+	Window int           // Maximum outstanding I-frames, 1-7 (default 4)
 }
 
 func defaultConnConfig() ConnConfig {
@@ -150,6 +150,8 @@ type Conn struct {
 	t1Active bool
 	t2Active bool
 	t3Active bool
+
+	pendingActions []func()
 }
 
 var (
@@ -207,8 +209,8 @@ func (c *Conn) IsConnected() bool {
 // Connect initiates a connection to remote, optionally via digipeaters.
 func (c *Conn) Connect(remote Address, via ...Address) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.state != ConnStateDisconnected {
+		c.mu.Unlock()
 		return ErrConnAlreadyActive
 	}
 	c.remoteAddr = remote
@@ -217,40 +219,50 @@ func (c *Conn) Connect(remote Address, via ...Address) error {
 	c.resetStateVars()
 	c.state = ConnStateAwaitingConnection
 	c.retryCount = 0
-	c.sendSABM(true)
 	c.startT1()
+	c.sendSABM(true)
+	actions := c.takePendingActions()
+	c.mu.Unlock()
+	c.runPendingActions(actions)
 	return nil
 }
 
 // Shutdown initiates a graceful disconnect.
 func (c *Conn) Shutdown() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.state == ConnStateDisconnected {
+		c.mu.Unlock()
 		return ErrConnNotConnected
 	}
 	c.stopAllTimers()
 	c.state = ConnStateAwaitingRelease
 	c.retryCount = 0
-	c.sendDISC(true)
 	c.startT1()
+	c.sendDISC(true)
+	actions := c.takePendingActions()
+	c.mu.Unlock()
+	c.runPendingActions(actions)
 	return nil
 }
 
 // SendData queues data for transmission as I-frames.
 func (c *Conn) SendData(data []byte) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.state != ConnStateConnected && c.state != ConnStateTimerRecovery {
+		c.mu.Unlock()
 		return ErrConnNotConnected
 	}
 	if len(c.txQueue) >= c.cfg.Window {
+		c.mu.Unlock()
 		return ErrConnSendBufFull
 	}
 	payload := make([]byte, len(data))
 	copy(payload, data)
 	c.txQueue = append(c.txQueue, pendingFrame{data: payload})
 	c.sendPendingIFrames()
+	actions := c.takePendingActions()
+	c.mu.Unlock()
+	c.runPendingActions(actions)
 	return nil
 }
 
@@ -264,8 +276,8 @@ func (c *Conn) Refuse() {
 // SetBusy signals local busy / not-busy state to the peer.
 func (c *Conn) SetBusy(busy bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.localBusy == busy {
+		c.mu.Unlock()
 		return
 	}
 	c.localBusy = busy
@@ -278,6 +290,9 @@ func (c *Conn) SetBusy(busy bool) {
 			c.sendRR(false, false)
 		}
 	}
+	actions := c.takePendingActions()
+	c.mu.Unlock()
+	c.runPendingActions(actions)
 }
 
 // OnFrame processes a received frame. Call this from the PHY/router receive path.
@@ -286,20 +301,23 @@ func (c *Conn) OnFrame(f *Frame) error {
 		return nil // ignore UI frames
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	var err error
 	switch c.state {
 	case ConnStateDisconnected:
-		return c.handleDisconnected(f)
+		err = c.handleDisconnected(f)
 	case ConnStateAwaitingConnection:
-		return c.handleAwaitingConnection(f)
+		err = c.handleAwaitingConnection(f)
 	case ConnStateAwaitingRelease:
-		return c.handleAwaitingRelease(f)
+		err = c.handleAwaitingRelease(f)
 	case ConnStateConnected:
-		return c.handleConnected(f)
+		err = c.handleConnected(f)
 	case ConnStateTimerRecovery:
-		return c.handleTimerRecovery(f)
+		err = c.handleTimerRecovery(f)
 	}
-	return nil
+	actions := c.takePendingActions()
+	c.mu.Unlock()
+	c.runPendingActions(actions)
+	return err
 }
 
 // ---------------------------------------------------------------------------
@@ -315,9 +333,13 @@ func (c *Conn) handleDisconnected(f *Frame) error {
 		c.resetStateVars()
 		c.state = ConnStateConnected
 		c.refusePending = false
-		// Fire OnConnect (must not block; we hold the lock).
+		// Fire OnConnect before replying so Refuse can reject the session.
 		if c.cbs.OnConnect != nil {
-			c.cbs.OnConnect(c.remoteAddr, false)
+			remote := c.remoteAddr
+			onConnect := c.cbs.OnConnect
+			c.mu.Unlock()
+			onConnect(remote, false)
+			c.mu.Lock()
 		}
 		if c.refusePending {
 			c.sendDM(HasPF(f.Control))
@@ -339,7 +361,8 @@ func (c *Conn) handleAwaitingConnection(f *Frame) error {
 		c.resetStateVars()
 		c.state = ConnStateConnected
 		if c.cbs.OnConnect != nil {
-			c.cbs.OnConnect(c.remoteAddr, true)
+			remote := c.remoteAddr
+			c.enqueueAction(func() { c.cbs.OnConnect(remote, true) })
 		}
 		c.startT3()
 		c.sendPendingIFrames()
@@ -400,7 +423,7 @@ func (c *Conn) handleIFrame(f *Frame) error {
 		if c.cbs.OnData != nil && len(f.Payload) > 0 {
 			data := make([]byte, len(f.Payload))
 			copy(data, f.Payload)
-			c.cbs.OnData(data)
+			c.enqueueAction(func() { c.cbs.OnData(data) })
 		}
 		if pf {
 			c.sendAck(true, false)
@@ -469,7 +492,7 @@ func (c *Conn) handleUFrameConnected(f *Frame) error {
 		c.resetStateVars()
 		c.sendUA(HasPF(f.Control))
 		if c.cbs.OnLinkReset != nil {
-			c.cbs.OnLinkReset()
+			c.enqueueAction(c.cbs.OnLinkReset)
 		}
 	case CtrlDISC:
 		c.sendUA(HasPF(f.Control))
@@ -487,7 +510,6 @@ func (c *Conn) handleUFrameConnected(f *Frame) error {
 
 func (c *Conn) onT1Expired() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.t1Active = false
 	slog.Debug("ax25: conn T1 expired", "state", c.state, "retry", c.retryCount)
 
@@ -525,21 +547,25 @@ func (c *Conn) onT1Expired() {
 			c.startT1()
 		}
 	}
+	actions := c.takePendingActions()
+	c.mu.Unlock()
+	c.runPendingActions(actions)
 }
 
 func (c *Conn) onT2Expired() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.t2Active = false
 	if (c.state == ConnStateConnected || c.state == ConnStateTimerRecovery) && c.ackPending {
 		c.sendAck(false, false)
 		c.ackPending = false
 	}
+	actions := c.takePendingActions()
+	c.mu.Unlock()
+	c.runPendingActions(actions)
 }
 
 func (c *Conn) onT3Expired() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.t3Active = false
 	if c.state == ConnStateConnected {
 		c.sendRR(true, true)
@@ -547,6 +573,9 @@ func (c *Conn) onT3Expired() {
 		c.retryCount = 0
 		c.startT1()
 	}
+	actions := c.takePendingActions()
+	c.mu.Unlock()
+	c.runPendingActions(actions)
 }
 
 // ---------------------------------------------------------------------------
@@ -623,7 +652,8 @@ func (c *Conn) buildFrame(ctrl byte, pid byte, payload []byte) *Frame {
 
 func (c *Conn) tx(f *Frame) {
 	if c.cbs.OnTxFrame != nil {
-		c.cbs.OnTxFrame(f)
+		frame := cloneConnFrame(f)
+		c.enqueueAction(func() { c.cbs.OnTxFrame(frame) })
 	}
 }
 
@@ -790,14 +820,45 @@ func (c *Conn) enterDisconnected() {
 	c.stopAllTimers()
 	c.state = ConnStateDisconnected
 	if c.cbs.OnDisconnect != nil {
-		c.cbs.OnDisconnect()
+		c.enqueueAction(c.cbs.OnDisconnect)
 	}
 }
 
 func (c *Conn) fireError(code error, msg string, retry int) {
 	if c.cbs.OnError != nil {
-		c.cbs.OnError(&ConnError{Code: code, Message: msg, RetryCount: retry})
+		err := &ConnError{Code: code, Message: msg, RetryCount: retry}
+		c.enqueueAction(func() { c.cbs.OnError(err) })
 	}
+}
+
+func (c *Conn) enqueueAction(action func()) {
+	c.pendingActions = append(c.pendingActions, action)
+}
+
+func (c *Conn) takePendingActions() []func() {
+	actions := c.pendingActions
+	c.pendingActions = nil
+	return actions
+}
+
+func (c *Conn) runPendingActions(actions []func()) {
+	for _, action := range actions {
+		action()
+	}
+}
+
+func cloneConnFrame(f *Frame) *Frame {
+	if f == nil {
+		return nil
+	}
+	clone := *f
+	if len(f.Digipeaters) > 0 {
+		clone.Digipeaters = append([]Address(nil), f.Digipeaters...)
+	}
+	if len(f.Payload) > 0 {
+		clone.Payload = append([]byte(nil), f.Payload...)
+	}
+	return &clone
 }
 
 // ---------------------------------------------------------------------------

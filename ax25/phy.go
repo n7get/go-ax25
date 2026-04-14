@@ -107,13 +107,16 @@ func (p *KISSSerialPHY) Start(ctx context.Context) error {
 
 // Stop cancels the context and waits for both goroutines to exit.
 func (p *KISSSerialPHY) Stop() {
-	if p.cancel != nil {
-		p.cancel()
-	}
-	p.wg.Wait()
 	p.mu.Lock()
 	p.closed = true
 	p.mu.Unlock()
+	if p.cancel != nil {
+		p.cancel()
+	}
+	if closer, ok := p.rw.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
+	p.wg.Wait()
 	close(p.rxCh)
 }
 
@@ -159,16 +162,7 @@ func (p *KISSSerialPHY) txLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			for {
-				select {
-				case encoded := <-p.txCh:
-					if _, err := p.rw.Write(encoded); err != nil {
-						slog.Error("ax25: KISSSerialPHY: write error", "err", err)
-					}
-				default:
-					return
-				}
-			}
+			return
 		case encoded := <-p.txCh:
 			if _, err := p.rw.Write(encoded); err != nil {
 				slog.Error("ax25: KISSSerialPHY: write error", "err", err)

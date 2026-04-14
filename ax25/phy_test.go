@@ -16,6 +16,7 @@ import (
 func newBidirectionalPipe() (io.ReadWriter, io.ReadWriter) {
 	arToB, bToA := io.Pipe()
 	bToA2, aToB := io.Pipe()
+	_ = bToA
 	_ = bToA2
 	// A reads from arToB, writes to aToB
 	// B reads from bToA2... let's use a simpler approach with sync.Pipe pairs
@@ -84,15 +85,30 @@ type loopbackPair struct {
 	aWrite, bWrite *chanRW
 }
 
-func newLoopbackPair() (io.ReadWriter, io.ReadWriter) {
+type loopbackRW struct {
+	reader *chanRW
+	writer *chanRW
+}
+
+func (rw loopbackRW) Read(p []byte) (int, error) {
+	return rw.reader.Read(p)
+}
+
+func (rw loopbackRW) Write(p []byte) (int, error) {
+	return rw.writer.Write(p)
+}
+
+func (rw loopbackRW) Close() error {
+	rw.reader.Close()
+	rw.writer.Close()
+	return nil
+}
+
+func newLoopbackPair() (io.ReadWriteCloser, io.ReadWriteCloser) {
 	aWrite := newChanRW()
 	bWrite := newChanRW()
-	type rw struct {
-		io.Reader
-		io.Writer
-	}
-	a := rw{Reader: bWrite, Writer: aWrite}
-	b := rw{Reader: aWrite, Writer: bWrite}
+	a := loopbackRW{reader: bWrite, writer: aWrite}
+	b := loopbackRW{reader: aWrite, writer: bWrite}
 	return a, b
 }
 
@@ -175,7 +191,11 @@ func TestKISSSerialPHY_TxQueueFull(t *testing.T) {
 	rw := struct {
 		io.Reader
 		io.Writer
-	}{pr, pw}
+		io.Closer
+	}{Reader: pr, Writer: pw, Closer: closerFunc(func() error {
+		_ = pr.Close()
+		return pw.Close()
+	})}
 
 	phy := NewKISSSerialPHY(rw, KISSSerialPHYConfig{TxQueueDepth: 2})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -195,4 +215,10 @@ func TestKISSSerialPHY_TxQueueFull(t *testing.T) {
 	}
 	cancel()
 	phy.Stop()
+}
+
+type closerFunc func() error
+
+func (fn closerFunc) Close() error {
+	return fn()
 }

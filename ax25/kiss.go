@@ -51,6 +51,7 @@ type KISSDecoder struct {
 	buf   []byte
 	port  byte
 	cmd   byte
+	haveHeader bool
 }
 
 // NewKISSDecoder creates a KISSDecoder that calls cb for each complete frame.
@@ -67,41 +68,44 @@ func (d *KISSDecoder) Write(p []byte) (int, error) {
 			if b == KISSFEnd {
 				d.state = kissStateData
 				d.buf = d.buf[:0]
+				d.haveHeader = false
 			}
 		case kissStateData:
 			switch b {
 			case KISSFEnd:
-				if len(d.buf) > 0 {
+				if d.haveHeader {
 					d.dispatch()
 				}
 				d.buf = d.buf[:0]
+				d.haveHeader = false
 			case KISSFEsc:
 				d.state = kissStateEscape
 			default:
-				if len(d.buf) == 0 {
-					d.port = (b >> 4) & 0x0F
-					d.cmd = b & 0x0F
-				} else {
-					d.buf = append(d.buf, b)
-				}
-				if len(d.buf) == 0 {
-					// first byte consumed as port/cmd marker
-					d.buf = append(d.buf) // keep buf non-nil but empty
-				}
+				d.appendDataByte(b)
 			}
 		case kissStateEscape:
 			d.state = kissStateData
 			switch b {
 			case KISSTFEnd:
-				d.buf = append(d.buf, KISSFEnd)
+				d.appendDataByte(KISSFEnd)
 			case KISSTFEsc:
-				d.buf = append(d.buf, KISSFEsc)
+				d.appendDataByte(KISSFEsc)
 			default:
-				d.buf = append(d.buf, b)
+				d.appendDataByte(b)
 			}
 		}
 	}
 	return len(p), nil
+}
+
+func (d *KISSDecoder) appendDataByte(b byte) {
+	if !d.haveHeader {
+		d.port = (b >> 4) & 0x0F
+		d.cmd = b & 0x0F
+		d.haveHeader = true
+		return
+	}
+	d.buf = append(d.buf, b)
 }
 
 func (d *KISSDecoder) dispatch() {
@@ -116,4 +120,5 @@ func (d *KISSDecoder) dispatch() {
 func (d *KISSDecoder) Reset() {
 	d.state = kissStateHunt
 	d.buf = d.buf[:0]
+	d.haveHeader = false
 }
