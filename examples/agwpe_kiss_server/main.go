@@ -2,14 +2,13 @@
 //
 // Usage:
 //
-//	 agwpe_kiss_server -config ax25.ini
+//	agwpe_kiss_server -config ax25.ini
 //
 // INI keys used:
 //
-//	 [serial]
-//	 port  = /dev/ttyUSB0
-//	 baud  = 9600
-//	
+//	[serial]
+//	port  = /dev/ttyUSB0
+//	baud  = 9600
 package main
 
 import (

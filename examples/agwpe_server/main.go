@@ -2,19 +2,19 @@
 //
 // Usage:
 //
-//	 agwpe_server -config ax25.ini
+//	agwpe_server -config ax25.ini
 //
 // INI keys used:
 //
-//	 [serial]
-//	 port  = /dev/ttyUSB0
-//	 baud  = 9600
-//	
-//	 [net]
-//	 agwpe_port = 8000
-//	
-//	 [station]
-//	 callsign = N0CALL
+//	[serial]
+//	port  = /dev/ttyUSB0
+//	baud  = 9600
+//
+//	[net]
+//	agwpe_port = 8000
+//
+//	[station]
+//	callsign = N0CALL
 package main
 
 import (

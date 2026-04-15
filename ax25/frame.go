@@ -9,10 +9,10 @@ import (
 )
 
 var (
-	ErrFrameTooShort    = errors.New("ax25: frame too short")
-	ErrTooManyDigis     = errors.New("ax25: too many digipeaters")
-	ErrPayloadTooLong   = errors.New("ax25: payload too long")
-	ErrInvalidAddress   = errors.New("ax25: invalid address in frame")
+	ErrFrameTooShort  = errors.New("ax25: frame too short")
+	ErrTooManyDigis   = errors.New("ax25: too many digipeaters")
+	ErrPayloadTooLong = errors.New("ax25: payload too long")
+	ErrInvalidAddress = errors.New("ax25: invalid address in frame")
 )
 
 // IdentifyFrameType returns the FrameType for a raw control byte.

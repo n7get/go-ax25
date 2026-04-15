@@ -14,10 +14,10 @@ type connHarness struct {
 	A, B *Conn
 	mu   sync.Mutex
 
-	aConnects, bConnects     int
+	aConnects, bConnects       int
 	aDisconnects, bDisconnects int
-	aData, bData             [][]byte
-	aTxFrames, bTxFrames     []*Frame
+	aData, bData               [][]byte
+	aTxFrames, bTxFrames       []*Frame
 }
 
 func newConnHarness(t *testing.T) *connHarness {

@@ -38,19 +38,19 @@ func EncodeFrameKISS(port byte, f *Frame) ([]byte, error) {
 type kissState int
 
 const (
-	kissStateHunt  kissState = iota // waiting for FEND
-	kissStateData                   // inside a frame
-	kissStateEscape                 // saw FESC, next byte is transposed
+	kissStateHunt   kissState = iota // waiting for FEND
+	kissStateData                    // inside a frame
+	kissStateEscape                  // saw FESC, next byte is transposed
 )
 
 // KISSDecoder is a streaming KISS frame decoder.
 // Feed bytes via Write; complete frames are delivered to the callback.
 type KISSDecoder struct {
-	cb    KISSCallback
-	state kissState
-	buf   []byte
-	port  byte
-	cmd   byte
+	cb         KISSCallback
+	state      kissState
+	buf        []byte
+	port       byte
+	cmd        byte
 	haveHeader bool
 }
 

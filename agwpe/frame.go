@@ -256,11 +256,11 @@ func ToAX25(f *Frame) (*ax25.Frame, error) {
 
 // ─── Builder helpers ──────────────────────────────────────────────────────────
 
-func BuildVersionReq() *Frame    { return &Frame{Kind: KindVersionReq} }
-func BuildPortInfoReq() *Frame   { return &Frame{Kind: KindPortInfoReq} }
+func BuildVersionReq() *Frame           { return &Frame{Kind: KindVersionReq} }
+func BuildPortInfoReq() *Frame          { return &Frame{Kind: KindPortInfoReq} }
 func BuildPortCapReq(port uint8) *Frame { return &Frame{Port: port, Kind: KindPortCapReq} }
-func BuildEnableMonitor() *Frame { return &Frame{Kind: KindEnableMonitor} }
-func BuildEnableRaw() *Frame     { return &Frame{Kind: KindEnableRaw} }
+func BuildEnableMonitor() *Frame        { return &Frame{Kind: KindEnableMonitor} }
+func BuildEnableRaw() *Frame            { return &Frame{Kind: KindEnableRaw} }
 func BuildRegisterCall(port uint8, callsign string) *Frame {
 	return &Frame{Port: port, Kind: KindRegisterCall, CallFrom: callsign}
 }

@@ -111,11 +111,11 @@ func (c *Client) SendFrame(f *Frame) error {
 	}
 }
 
-func (c *Client) RequestVersion() error        { return c.SendFrame(BuildVersionReq()) }
-func (c *Client) RequestPortInfo() error        { return c.SendFrame(BuildPortInfoReq()) }
+func (c *Client) RequestVersion() error           { return c.SendFrame(BuildVersionReq()) }
+func (c *Client) RequestPortInfo() error          { return c.SendFrame(BuildPortInfoReq()) }
 func (c *Client) RequestPortCap(port uint8) error { return c.SendFrame(BuildPortCapReq(port)) }
-func (c *Client) EnableMonitor() error          { return c.SendFrame(BuildEnableMonitor()) }
-func (c *Client) EnableRaw() error              { return c.SendFrame(BuildEnableRaw()) }
+func (c *Client) EnableMonitor() error            { return c.SendFrame(BuildEnableMonitor()) }
+func (c *Client) EnableRaw() error                { return c.SendFrame(BuildEnableRaw()) }
 
 // SendUnproto sends an AX.25 UI frame via AGWPE unproto.
 func (c *Client) SendUnproto(frame *ax25.Frame, port uint8) error {

@@ -51,7 +51,7 @@ const (
 type FrameType int
 
 const (
-	FrameUI      FrameType = iota
+	FrameUI FrameType = iota
 	FrameI
 	FrameS
 	FrameU

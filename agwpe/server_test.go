@@ -145,7 +145,7 @@ func TestServerOnConnectedCallback(t *testing.T) {
 	router := ax25.NewRouter()
 	connected := make(chan struct{}, 1)
 	cfg := agwpe.ServerConfig{
-		Port: 0,
+		Port:        0,
 		OnConnected: func(_ *agwpe.Server) { connected <- struct{}{} },
 	}
 	_, client := serverPipe(t, cfg, router)
@@ -162,7 +162,7 @@ func TestServerOnDisconnectedCallback(t *testing.T) {
 	router := ax25.NewRouter()
 	disconnected := make(chan struct{}, 1)
 	cfg := agwpe.ServerConfig{
-		Port: 0,
+		Port:           0,
 		OnDisconnected: func(_ *agwpe.Server) { disconnected <- struct{}{} },
 	}
 	_, client := serverPipe(t, cfg, router)
