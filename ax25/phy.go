@@ -131,6 +131,12 @@ func (p *KISSSerialPHY) rxLoop(ctx context.Context) {
 			slog.Debug("ax25: KISSSerialPHY: rx parse error", "err", err)
 			return
 		}
+		slog.Debug("ax25: KISSSerialPHY: rx",
+			"src", f.Source.String(),
+			"dst", f.Destination.String(),
+			"type", f.Type,
+			"payload_len", len(f.Payload),
+		)
 		select {
 		case p.rxCh <- f:
 		default:

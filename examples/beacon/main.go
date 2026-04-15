@@ -4,8 +4,7 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,33 +16,51 @@ import (
 )
 
 func main() {
+	// Set up slog for structured logging at Debug level
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+
 	cfgPath := flag.String("config", "ax25.ini", "INI config file")
 	flag.Parse()
 
-	cfg := ax25.NewConfig(nil)
-	if err := cfg.LoadINI(*cfgPath); err != nil && !os.IsNotExist(err) {
-		log.Fatalf("config: %v", err)
+	if cfgPath != nil {
+		if _, err := os.Stat(*cfgPath); os.IsNotExist(err) {
+			slog.Error("Config file not found", "path", *cfgPath)
+			os.Exit(1)
+		}
 	}
 
-	serialRW, err := serial.Open(cfg.GetStr("serial.device", "/dev/ttyUSB0"), &serial.Mode{BaudRate: cfg.GetInt("serial.baud", 9600)})
+	cfg := ax25.NewConfig(nil)
+	if err := cfg.LoadINI(*cfgPath); err != nil && !os.IsNotExist(err) {
+		slog.Error("config load failed", "err", err)
+		os.Exit(1)
+	}
+
+	serialDevice := cfg.GetStr("serial.device", "/dev/ttyUSB0")
+	serialBaud := cfg.GetInt("serial.baud", 9600)
+
+	slog.Info("Starting beacon", "serial.device", serialDevice, "serial.baud", serialBaud)
+	serialRW, err := serial.Open(serialDevice, &serial.Mode{BaudRate: serialBaud})
 	if err != nil {
-		log.Fatalf("open serial port: %v", err)
+		slog.Error("open serial port", "err", err)
+		os.Exit(1)
 	}
 	defer serialRW.Close()
 
 	kissPHY, err := phy.NewKISSSerialPHY(phy.KISSSerialConfig{Port: serialRW})
 	if err != nil {
-		log.Fatalf("serial PHY: %v", err)
+		slog.Error("serial PHY", "err", err)
+		os.Exit(1)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := kissPHY.Start(ctx); err != nil {
-		log.Fatalf("start PHY: %v", err)
+		slog.Error("start PHY", "err", err)
+		os.Exit(1)
 	}
 	defer kissPHY.Stop()
 
 	bcnCfg := ax25.BeaconConfig{
-		Source:      fmt.Sprintf("%s-%d", cfg.GetStr("station.callsign", "N0CALL"), cfg.GetInt("station.ssid", 0)),
+		Source:      cfg.GetStr("station.callsign", "N0CALL"),
 		Destination: cfg.GetStr("beacon.destination", "APRS"),
 		Via:         cfg.GetStr("beacon.via", ""),
 		Text:        cfg.GetStr("beacon.text", "go-ax25 beacon"),
@@ -53,11 +70,11 @@ func main() {
 	bcn.Start(ctx)
 	defer bcn.Stop()
 
-	log.Printf("Beacon started: %s > %s every %v", bcnCfg.Source, bcnCfg.Destination, bcnCfg.Every)
+	slog.Info("Beacon started", "src", bcnCfg.Source, "dst", bcnCfg.Destination, "every", bcnCfg.Every)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 	cancel()
-	log.Println("Shutting down")
+	slog.Info("Shutting down")
 }

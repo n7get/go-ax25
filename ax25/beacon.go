@@ -122,6 +122,7 @@ func (b *Beacon) send(cfg BeaconConfig) error {
 	if cfg.Source == "" {
 		return nil
 	}
+	slog.Debug("ax25: beacon: send frame", "src", cfg.Source, "dst", cfg.Destination, "text", cfg.Text)
 	src, err := ParseAddress(cfg.Source)
 	if err != nil {
 		return err
