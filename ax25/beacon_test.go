@@ -4,6 +4,7 @@
 package ax25
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -59,7 +60,9 @@ func TestBeacon_Periodic(t *testing.T) {
 		return nil
 	})
 
-	b.Start(t.Context())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.Start(ctx)
 	time.Sleep(180 * time.Millisecond)
 	b.Stop()
 

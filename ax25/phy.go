@@ -149,6 +149,11 @@ func (p *KISSSerialPHY) rxLoop(ctx context.Context) {
 			dec.Write(buf[:n])
 		}
 		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			if !errors.Is(err, io.EOF) {
 				slog.Error("ax25: KISSSerialPHY: read error", "err", err)
 			}
