@@ -66,6 +66,25 @@ func main() {
 		Text:        cfg.GetStr("beacon.text", "go-ax25 beacon"),
 		Every:       time.Duration(cfg.GetInt("beacon.every", 10)) * time.Minute,
 	}
+
+	// Start a goroutine to drain and discard all inbound frames from the KISS serial PHY
+	go func(rxCh <-chan *ax25.Frame, ctx context.Context) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-rxCh:
+				// case f := <-rxCh:
+				// 	slog.Debug("ax25: main: rx",
+				// 		"src", f.Source.String(),
+				// 		"dst", f.Destination.String(),
+				// 		"type", f.Type,
+				// 		"payload_len", len(f.Payload),
+				// 	)
+			}
+		}
+	}(kissPHY.RxFrames(), ctx)
+
 	bcn := ax25.NewBeacon(bcnCfg, kissPHY.SendFrame)
 	bcn.Start(ctx)
 	defer bcn.Stop()
