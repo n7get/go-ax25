@@ -19,27 +19,21 @@ func main() {
 	// Set up slog for structured logging at Debug level
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
-	cfgPath := flag.String("config", "ax25.ini", "INI config file")
+	// Command-line flags for configuration
+	var (
+		serialDevice = flag.String("serial", "/dev/ttyUSB0", "Serial device for KISS TNC")
+		baud         = flag.Int("baud", 9600, "Serial baud rate")
+		callsign     = flag.String("callsign", "N0CALL", "Source callsign")
+		dest         = flag.String("dest", "APRS", "Beacon dest callsign")
+		via          = flag.String("via", "", "Comma-separated digipeater path")
+		text         = flag.String("text", "go-ax25 beacon", "Beacon text")
+		every        = flag.Int("every", 10, "Beacon interval in minutes")
+	)
+
 	flag.Parse()
 
-	if cfgPath != nil {
-		if _, err := os.Stat(*cfgPath); os.IsNotExist(err) {
-			slog.Error("Config file not found", "path", *cfgPath)
-			os.Exit(1)
-		}
-	}
-
-	cfg := ax25.NewConfig(nil)
-	if err := cfg.LoadINI(*cfgPath); err != nil && !os.IsNotExist(err) {
-		slog.Error("config load failed", "err", err)
-		os.Exit(1)
-	}
-
-	serialDevice := cfg.GetStr("serial.device", "/dev/ttyUSB0")
-	serialBaud := cfg.GetInt("serial.baud", 9600)
-
-	slog.Info("Starting beacon", "serial.device", serialDevice, "serial.baud", serialBaud)
-	serialRW, err := serial.Open(serialDevice, &serial.Mode{BaudRate: serialBaud})
+	slog.Info("Starting beacon", "serial", *serialDevice, "baud", *baud)
+	serialRW, err := serial.Open(*serialDevice, &serial.Mode{BaudRate: *baud})
 	if err != nil {
 		slog.Error("open serial port", "err", err)
 		os.Exit(1)
@@ -60,11 +54,11 @@ func main() {
 	defer kissPHY.Stop()
 
 	bcnCfg := ax25.BeaconConfig{
-		Source:      cfg.GetStr("station.callsign", "N0CALL"),
-		Destination: cfg.GetStr("beacon.destination", "APRS"),
-		Via:         cfg.GetStr("beacon.via", ""),
-		Text:        cfg.GetStr("beacon.text", "go-ax25 beacon"),
-		Every:       time.Duration(cfg.GetInt("beacon.every", 10)) * time.Minute,
+		Source:      *callsign,
+		Destination: *dest,
+		Via:         *via,
+		Text:        *text,
+		Every:       time.Duration(*every) * time.Minute,
 	}
 
 	// Start a goroutine to drain and discard all inbound frames from the KISS serial PHY
