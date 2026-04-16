@@ -43,15 +43,16 @@ type KISSSerialPHYConfig struct {
 
 // KISSSerialPHY implements PHY over a KISS-framed io.ReadWriter.
 type KISSSerialPHY struct {
-	cfg    KISSSerialPHYConfig
-	rw     io.ReadWriter
-	rxCh   chan *Frame
-	txCh   chan []byte
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	once   sync.Once
-	closed bool
-	mu     sync.Mutex
+	cfg         KISSSerialPHYConfig
+	rw          io.ReadWriter
+	rxCh        chan *Frame
+	txCh        chan []byte
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	once        sync.Once
+	closeRxOnce sync.Once
+	closed      bool
+	mu          sync.Mutex
 }
 
 // NewKISSSerialPHY creates a KISSSerialPHY that reads from and writes to rw.
@@ -117,11 +118,12 @@ func (p *KISSSerialPHY) Stop() {
 		_ = closer.Close()
 	}
 	p.wg.Wait()
-	close(p.rxCh)
+	p.closeRxOnce.Do(func() { close(p.rxCh) })
 }
 
 func (p *KISSSerialPHY) rxLoop(ctx context.Context) {
 	defer p.wg.Done()
+	defer p.closeRxOnce.Do(func() { close(p.rxCh) })
 	dec := NewKISSDecoder(func(port, cmd byte, data []byte) {
 		if cmd != 0 {
 			return
@@ -131,12 +133,7 @@ func (p *KISSSerialPHY) rxLoop(ctx context.Context) {
 			slog.Debug("ax25: KISSSerialPHY: rx parse error", "err", err)
 			return
 		}
-		slog.Debug("ax25: KISSSerialPHY: rx",
-			"src", f.Source.String(),
-			"dst", f.Destination.String(),
-			"type", f.Type,
-			"payload_len", len(f.Payload),
-		)
+		LogFrame(slog.LevelDebug, "ax25: KISSSerialPHY: rx", f)
 		select {
 		case p.rxCh <- f:
 		default:
