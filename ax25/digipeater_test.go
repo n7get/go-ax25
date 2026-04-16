@@ -25,7 +25,8 @@ func TestDigipeater_Disabled(t *testing.T) {
 	f := makeUIFrame("DEST-0", "SRC-0")
 	relay, _ := ParseAddress("RELAY-1")
 	f.Digipeaters = []Address{relay}
-	r.Send(f, nil)
+	sender := &Port{Mode: PortModeDefault}
+	r.Send(f, sender)
 	time.Sleep(100 * time.Millisecond)
 	if called {
 		t.Error("disabled digipeater should not relay frames")
@@ -52,7 +53,8 @@ func TestDigipeater_RelaysMatchingFrame(t *testing.T) {
 	f := makeUIFrame("DEST-0", "SRC-0")
 	relay, _ := ParseAddress("RELAY-1")
 	f.Digipeaters = []Address{relay}
-	r.Send(f, nil)
+	sender := &Port{Mode: PortModeDefault}
+	r.Send(f, sender)
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
@@ -88,7 +90,8 @@ func TestDigipeater_IgnoresNonMatchingFrame(t *testing.T) {
 	relay1, _ := ParseAddress("RELAY-1")
 	relay2, _ := ParseAddress("RELAY-2")
 	f.Digipeaters = []Address{relay1, relay2} // RELAY-1 is next hop, not RELAY-2
-	r.Send(f, nil)
+	sender := &Port{Mode: PortModeDefault}
+	r.Send(f, sender)
 	time.Sleep(100 * time.Millisecond)
 	if called {
 		t.Error("digipeater should not relay when it is not the next hop")
@@ -122,7 +125,8 @@ func TestDigipeater_Close(t *testing.T) {
 	f := makeUIFrame("DEST-0", "SRC-0")
 	relay, _ := ParseAddress("RELAY-1")
 	f.Digipeaters = []Address{relay}
-	r.Send(f, nil)
+	sender := &Port{Mode: PortModeDefault}
+	r.Send(f, sender)
 	time.Sleep(100 * time.Millisecond)
 	if called {
 		t.Error("closed digipeater should not relay frames")

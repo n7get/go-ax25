@@ -5,6 +5,7 @@ package ax25
 
 import (
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 )
@@ -25,6 +26,8 @@ var (
 	ErrPortNotFound          = errors.New("ax25: port not found")
 	ErrRouterClosed          = errors.New("ax25: router is closed")
 	ErrTxQueueFull           = errors.New("ax25: router tx queue full")
+	ErrNilFrame              = errors.New("ax25: nil frame")
+	ErrNilPort               = errors.New("ax25: nil source port")
 )
 
 // PortStats holds per-port counters.
@@ -178,10 +181,35 @@ func (r *Router) Close() {
 
 // Send routes a frame from srcPort to all matching destination ports.
 // srcPort may be nil (e.g. for internally generated frames).
+// If srcPort is a Dynamic port with no Destination bound yet, it is
+// automatically bound to f.Source (the callsign of the first sender).
 func (r *Router) Send(f *Frame, srcPort *Port) error {
+	if f == nil {
+		return ErrNilFrame
+	}
+	if srcPort == nil {
+		return ErrNilPort
+	}
 	if r.closed.Load() {
 		return ErrRouterClosed
 	}
+
+	// Bind an unbound dynamic port to the source callsign of its first frame.
+	if srcPort.Mode == PortModeDynamic {
+		srcPort.mu.Lock()
+		if srcPort.Destination.Callsign == "" {
+			srcPort.Destination = f.Source
+			slog.Debug("ax25: router: dynamic port bound",
+				"src", f.Source.String(),
+				"dst", f.Destination.String(),
+			)
+		}
+		srcPort.mu.Unlock()
+	}
+
+	LogFrame(slog.LevelDebug, "ax25: router: send", f,
+		slog.Bool("has_next_digi", r.hasUnrepeatedDigi(f)),
+	)
 
 	r.mu.RLock()
 	ports := make([]*Port, len(r.ports))
@@ -195,13 +223,16 @@ func (r *Router) Send(f *Frame, srcPort *Port) error {
 		digiPorts    []*Port
 	)
 
+	hasNextDigi := r.hasUnrepeatedDigi(f)
+
 	for _, p := range ports {
 		if p == srcPort {
 			continue
 		}
 		switch p.Mode {
 		case PortModeStatic, PortModeDynamic:
-			if p.Destination.Equal(f.Destination) {
+			// Only match when there is no pending digipeater hop
+			if !hasNextDigi && p.Destination.Equal(f.Destination) {
 				staticMatch = p
 			}
 		case PortModeDefault:
@@ -217,11 +248,15 @@ func (r *Router) Send(f *Frame, srcPort *Port) error {
 
 	// Deliver to promiscuous ports always.
 	for _, p := range promoPorts {
+		LogFrame(slog.LevelDebug, "ax25: router: deliver promiscuous", f)
 		p.deliver(cloneFrame(f))
 	}
 
 	// Deliver to digipeater ports (with H-bit update).
 	for _, p := range digiPorts {
+		LogFrame(slog.LevelDebug, "ax25: router: deliver digipeater", f,
+			slog.String("via", p.Destination.String()),
+		)
 		relayed := cloneFrame(f)
 		r.markDigiHop(relayed, p.Destination)
 		p.deliver(relayed)
@@ -229,14 +264,30 @@ func (r *Router) Send(f *Frame, srcPort *Port) error {
 
 	// Deliver to static/dynamic match, or fall back to default ports.
 	if staticMatch != nil {
+		LogFrame(slog.LevelDebug, "ax25: router: deliver static/dynamic", f)
 		staticMatch.deliver(cloneFrame(f))
-	} else {
+	} else if len(defaultPorts) > 0 {
+		LogFrame(slog.LevelDebug, "ax25: router: deliver default", f,
+			slog.Int("count", len(defaultPorts)),
+		)
 		for _, p := range defaultPorts {
 			p.deliver(cloneFrame(f))
 		}
+	} else {
+		LogFrame(slog.LevelDebug, "ax25: router: no match, frame dropped", f)
 	}
 
 	return nil
+}
+
+// hasUnrepeatedDigi returns true if f has any digipeater hop not yet marked as repeated.
+func (r *Router) hasUnrepeatedDigi(f *Frame) bool {
+	for _, d := range f.Digipeaters {
+		if !d.HasBeenRepeated {
+			return true
+		}
+	}
+	return false
 }
 
 // isNextDigiHop returns true if addr is the first unrepeated digipeater in f.

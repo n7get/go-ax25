@@ -55,7 +55,8 @@ func TestRouter_StaticRouting(t *testing.T) {
 	}
 	r.RegisterPort(p)
 
-	r.Send(makeUIFrame("DEST-0", "SRC-0"), nil)
+	sender := &Port{Mode: PortModeDefault}
+	r.Send(makeUIFrame("DEST-0", "SRC-0"), sender)
 	waitForCount(t, &count, &mu, 1, 500*time.Millisecond)
 }
 
@@ -71,8 +72,9 @@ func TestRouter_PromiscuousReceivesAll(t *testing.T) {
 	}
 	r.RegisterPort(p)
 
+	sender := &Port{Mode: PortModeDefault}
 	for i := 0; i < 5; i++ {
-		r.Send(makeUIFrame("DEST-0", "SRC-0"), nil)
+		r.Send(makeUIFrame("DEST-0", "SRC-0"), sender)
 	}
 	waitForCount(t, &count, &mu, 5, 500*time.Millisecond)
 }
@@ -90,7 +92,8 @@ func TestRouter_DefaultFallback(t *testing.T) {
 	r.RegisterPort(p)
 
 	// No static port for DEST-0, so default should receive it.
-	r.Send(makeUIFrame("DEST-0", "SRC-0"), nil)
+	sender := &Port{Mode: PortModePromiscuous}
+	r.Send(makeUIFrame("DEST-0", "SRC-0"), sender)
 	waitForCount(t, &count, &mu, 1, 500*time.Millisecond)
 }
 
@@ -115,7 +118,8 @@ func TestRouter_DigipeaterHBit(t *testing.T) {
 	relay, _ := ParseAddress("RELAY-1")
 	f.Digipeaters = []Address{relay}
 
-	r.Send(f, nil)
+	sender := &Port{Mode: PortModeDefault}
+	r.Send(f, sender)
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
@@ -169,7 +173,8 @@ func TestRouter_UnregisterPort(t *testing.T) {
 	r.RegisterPort(p)
 	r.UnregisterPort(p)
 
-	r.Send(makeUIFrame("DEST-0", "SRC-0"), nil)
+	sender := &Port{Mode: PortModeDefault}
+	r.Send(makeUIFrame("DEST-0", "SRC-0"), sender)
 	time.Sleep(100 * time.Millisecond)
 	mu.Lock()
 	got := count
