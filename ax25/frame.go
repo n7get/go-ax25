@@ -4,8 +4,10 @@
 package ax25
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 )
 
 var (
@@ -14,6 +16,58 @@ var (
 	ErrPayloadTooLong = errors.New("ax25: payload too long")
 	ErrInvalidAddress = errors.New("ax25: invalid address in frame")
 )
+
+// ControlName returns a human-readable name for the frame described by ctrl,
+// e.g. "SABM", "UA", "UI", "RR", "I". The P/F bit (bit 4) is masked off
+// before matching U-frames so callers do not need to strip it first.
+func ControlName(ctrl byte) string {
+	switch {
+	case ctrl == CtrlUI:
+		return "UI"
+	case ctrl&0xEF == CtrlSABM&0xEF:
+		return "SABM"
+	case ctrl&0xEF == CtrlDISC&0xEF:
+		return "DISC"
+	case ctrl&0xEF == CtrlDM&0xEF:
+		return "DM"
+	case ctrl&0xEF == CtrlUA&0xEF:
+		return "UA"
+	case ctrl&0xEF == CtrlFRMR&0xEF:
+		return "FRMR"
+	case ctrl&0x01 == 0:
+		return "I"
+	case ctrl&0x0F == CtrlRRMask:
+		return "RR"
+	case ctrl&0x0F == CtrlRNRMask:
+		return "RNR"
+	case ctrl&0x0F == CtrlREJMask:
+		return "REJ"
+	default:
+		return "?"
+	}
+}
+
+// Name returns the human-readable frame name derived from the Control byte,
+// e.g. "SABM", "UA", "UI", "RR", "I".
+func (f *Frame) Name() string { return ControlName(f.Control) }
+
+// LogFrame emits a structured slog record at the given level with the
+// standard frame attributes (src, dst, frame name, payload_len) plus any
+// caller-supplied extra attributes.
+func LogFrame(level slog.Level, msg string, f *Frame, extra ...slog.Attr) {
+	if !slog.Default().Enabled(context.Background(), level) {
+		return
+	}
+	attrs := make([]slog.Attr, 0, 4+len(extra))
+	attrs = append(attrs,
+		slog.String("src", f.Source.String()),
+		slog.String("dst", f.Destination.String()),
+		slog.String("frame", f.Name()),
+		slog.Int("payload_len", len(f.Payload)),
+	)
+	attrs = append(attrs, extra...)
+	slog.LogAttrs(context.Background(), level, msg, attrs...)
+}
 
 // IdentifyFrameType returns the FrameType for a raw control byte.
 func IdentifyFrameType(ctrl byte) FrameType {

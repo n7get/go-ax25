@@ -121,7 +121,7 @@ func (a *appCtx) onData(data []byte) {
 }
 
 func (a *appCtx) onTxFrame(frame ax25.Frame) {
-	slog.Debug("CLIENT: onTxFrame", "src", frame.Source.String(), "dst", frame.Destination.String(), "type", frame.Type.String(), "payload_len", len(frame.Payload))
+	ax25.LogFrame(slog.LevelDebug, "CLIENT: onTxFrame", &frame)
 	if err := a.router.Send(&frame, a.appPort); err != nil {
 		slog.Error("CLIENT: tx error", "err", err)
 	}
@@ -242,9 +242,8 @@ shutdown:
 // ── main ──────────────────────────────────────────────────────────────────────
 
 func main() {
-	// Set up slog for structured debug logging
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	var (
+		debug      = flag.Bool("debug", false, "enable debug logging")
 		localCall  = flag.String("local", "", "local callsign, e.g. N0CALL-1 (required)")
 		remoteCall = flag.String("remote", "", "remote callsign, e.g. W1AW-1 (required)")
 		kissTCP    = flag.String("kiss-tcp", "", "KISS TCP host:port, e.g. 127.0.0.1:8001")
@@ -252,6 +251,10 @@ func main() {
 		serialBaud = flag.Int("baud", 9600, "serial baud rate (used with -kiss-serial)")
 	)
 	flag.Parse()
+
+	if *debug {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	}
 
 	if *localCall == "" || *remoteCall == "" {
 		slog.Error("Missing required flags: -local and -remote")
@@ -312,7 +315,7 @@ func main() {
 		Destination: local,
 		Mode:        ax25.PortModeStatic,
 		OnRxFrame: func(frame *ax25.Frame) {
-			slog.Debug("AppPort: received frame", "src", frame.Source.String(), "dst", frame.Destination.String(), "type", frame.Type.String(), "payload_len", len(frame.Payload))
+			ax25.LogFrame(slog.LevelDebug, "AppPort: received frame", frame)
 			if app.conn != nil {
 				app.conn.OnFrame(frame)
 			}
@@ -328,7 +331,7 @@ func main() {
 	phyPort := &ax25.Port{
 		Mode: ax25.PortModeDefault,
 		OnRxFrame: func(frame *ax25.Frame) {
-			slog.Debug("PHYPort: sending frame to PHY", "src", frame.Source.String(), "dst", frame.Destination.String(), "type", frame.Type.String(), "payload_len", len(frame.Payload))
+			ax25.LogFrame(slog.LevelDebug, "PHYPort: sending frame to PHY", frame)
 			if err := phy.SendFrame(frame); err != nil {
 				slog.Error("PHYPort: SendFrame error", "err", err)
 			}
@@ -351,7 +354,7 @@ func main() {
 	// Bridge PHY → router: forward frames received from the TNC into the router.
 	go func() {
 		for frame := range phy.RxFrames() {
-			slog.Debug("PHY: received frame", "src", frame.Source.String(), "dst", frame.Destination.String(), "type", frame.Type.String(), "payload_len", len(frame.Payload))
+			ax25.LogFrame(slog.LevelDebug, "PHY: received frame", frame)
 			router.Send(frame, phyPort)
 		}
 	}()

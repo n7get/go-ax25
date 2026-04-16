@@ -16,11 +16,9 @@ import (
 )
 
 func main() {
-	// Set up slog for structured logging at Debug level
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
-
 	// Command-line flags for configuration
 	var (
+		debug        = flag.Bool("debug", false, "enable debug logging")
 		serialDevice = flag.String("serial", "/dev/ttyUSB0", "Serial device for KISS TNC")
 		baud         = flag.Int("baud", 9600, "Serial baud rate")
 		callsign     = flag.String("callsign", "N0CALL", "Source callsign")
@@ -31,6 +29,10 @@ func main() {
 	)
 
 	flag.Parse()
+
+	if *debug {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	}
 
 	slog.Info("Starting beacon", "serial", *serialDevice, "baud", *baud)
 	serialRW, err := serial.Open(*serialDevice, &serial.Mode{BaudRate: *baud})
