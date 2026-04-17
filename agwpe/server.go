@@ -50,6 +50,7 @@ type connSlot struct {
 	localCall  string
 	remoteCall string
 	conn       *ax25.Conn
+	routerPort *ax25.Port
 }
 
 // Server is an AGWPE server that bridges one TCP client to the AX.25 stack.
@@ -153,6 +154,7 @@ func (s *Server) rxLoop(c net.Conn) {
 
 func (s *Server) txPump(c net.Conn) {
 	for f := range s.txCh {
+		slog.Debug("agwpe tx", "kind", string(f.Kind), "from", f.CallFrom, "to", f.CallTo, "data_len", len(f.Data))
 		b, err := f.Encode()
 		if err != nil {
 			slog.Warn("agwpe server: encode error", "err", err)
@@ -185,6 +187,7 @@ func (s *Server) handleClientFrame(f *Frame) {
 	if f == nil {
 		return
 	}
+	slog.Debug("agwpe rx", "kind", string(f.Kind), "from", f.CallFrom, "to", f.CallTo, "data_len", len(f.Data))
 	switch f.Kind {
 	case 'P':
 	case 'R':
@@ -295,8 +298,8 @@ func (s *Server) handleSendUnprotoVia(f *Frame) {
 }
 
 func (s *Server) handleConnect(f *Frame, digis []ax25.Address) {
-	localCall := f.CallTo
-	remoteCall := f.CallFrom
+	localCall := f.CallFrom
+	remoteCall := f.CallTo
 
 	slot := s.allocSlot(localCall, remoteCall)
 	if slot == nil {
@@ -324,6 +327,13 @@ func (s *Server) handleConnect(f *Frame, digis []ax25.Address) {
 		},
 		OnDisconnect: func() {
 			s.enqueue(BuildDisconnectedResp(s.cfg.Port, localCall, remoteCall))
+			slot.mu.Lock()
+			cp := slot.routerPort
+			slot.routerPort = nil
+			slot.mu.Unlock()
+			if cp != nil {
+				_ = s.router.UnregisterPort(cp)
+			}
 			s.freeSlot(slot)
 		},
 		OnData: func(data []byte) {
@@ -351,8 +361,27 @@ func (s *Server) handleConnect(f *Frame, digis []ax25.Address) {
 	slot.conn = conn
 	slot.mu.Unlock()
 
+	connPort := &ax25.Port{
+		Mode:        ax25.PortModeStatic,
+		Destination: localAddr,
+		OnRxFrame: func(f *ax25.Frame) {
+			if err := conn.OnFrame(f); err != nil {
+				slog.Warn("agwpe server: conn.OnFrame error", "err", err)
+			}
+		},
+	}
+	if err := s.router.RegisterPort(connPort); err != nil {
+		slog.Warn("agwpe server: register conn port", "err", err)
+		s.freeSlot(slot)
+		return
+	}
+	slot.mu.Lock()
+	slot.routerPort = connPort
+	slot.mu.Unlock()
+
 	if err := conn.Connect(remoteAddr, digis...); err != nil {
 		slog.Warn("agwpe server: Connect failed", "err", err)
+		_ = s.router.UnregisterPort(connPort)
 		s.freeSlot(slot)
 	}
 }
@@ -367,8 +396,8 @@ func (s *Server) handleConnectPID(f *Frame) {
 }
 
 func (s *Server) handleSendData(f *Frame) {
-	localCall := f.CallTo
-	remoteCall := f.CallFrom
+	localCall := f.CallFrom
+	remoteCall := f.CallTo
 	slot := s.findSlot(localCall, remoteCall)
 	if slot == nil {
 		slog.Warn("agwpe server: send data: no matching slot", "local", localCall, "remote", remoteCall)
@@ -390,8 +419,8 @@ func (s *Server) handleSendData(f *Frame) {
 }
 
 func (s *Server) handleDisconnect(f *Frame) {
-	localCall := f.CallTo
-	remoteCall := f.CallFrom
+	localCall := f.CallFrom
+	remoteCall := f.CallTo
 	slot := s.findSlot(localCall, remoteCall)
 	if slot == nil {
 		return

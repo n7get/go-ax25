@@ -34,7 +34,7 @@ const (
 	KindHeardReq        byte = 'H'
 	KindConnectReq      byte = 'C'
 	KindConnectViaReq   byte = 'v'
-	KindConnectResp     byte = 'c'
+	KindConnectResp     byte = 'C'
 	KindSendData        byte = 'D'
 	KindRecvData        byte = 'D'
 	KindDisconnectReq   byte = 'd'
