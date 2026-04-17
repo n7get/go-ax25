@@ -27,6 +27,7 @@ import (
 	"syscall"
 
 	"github.com/n7get/go-ax25/ax25"
+	"github.com/n7get/go-ax25/phy"
 	"go.bug.st/serial"
 )
 
@@ -161,49 +162,40 @@ func serveTCP(ln net.Listener, pool *tcpPool) {
 // ── main ─────────────────────────────────────────────────────────────────────
 
 func main() {
-	var (
-		debug      = flag.Bool("debug", false, "enable debug logging")
-		kissTCP    = flag.String("kiss-tcp", "", "upstream KISS TNC via TCP host:port (alternative to serial)")
-		kissSerial = flag.String("kiss-serial", "", "upstream KISS TNC serial device, e.g. /dev/ttyUSB0")
-		serialBaud = flag.Int("baud", 57600, "serial baud rate")
-		listen     = flag.String("listen", ":8100", "TCP KISS server listen address")
-		maxClients = flag.Int("max-clients", 8, "max simultaneous TCP KISS clients")
-	)
+	cfgPath := flag.String("config", "ax25.ini", "INI config file")
+	debug := flag.Bool("debug", false, "enable debug logging")
 	flag.Parse()
 
 	if *debug {
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	}
 
-	if *kissTCP == "" && *kissSerial == "" {
-		fmt.Fprintln(os.Stderr, "error: one of -kiss-tcp or -kiss-serial is required")
-		flag.Usage()
+	cfg := ax25.NewConfig(nil)
+	if err := cfg.LoadINI(*cfgPath); err != nil {
+		fmt.Fprintln(os.Stderr, "error: failed to load config:", err)
 		os.Exit(2)
 	}
+
+	serialPort := cfg.GetStr("kiss.serial.device", "/dev/ttyUSB0")
+	serialBaud := cfg.GetInt("kiss.serial.baud", 57600)
+	listenAddr := cfg.GetStr("kiss.server.port", ":8100")
+	maxClients := cfg.GetInt("kiss.server.max_clients", 8)
 
 	slog.Info("ROUTER: ESP-AX25 KISS Router (Go)")
 
 	// ── build upstream PHY ──
-	var uartRW io.ReadWriter
-	if *kissTCP != "" {
-		conn, err := net.Dial("tcp", *kissTCP)
-		if err != nil {
-			slog.Error("dial upstream KISS TCP", "addr", *kissTCP, "err", err)
-			os.Exit(1)
-		}
-		uartRW = conn
-		slog.Info("ROUTER: upstream KISS TCP", "addr", *kissTCP)
-	} else {
-		sp, err := openSerial(*kissSerial, *serialBaud)
-		if err != nil {
-			slog.Error("open serial", "device", *kissSerial, "err", err)
-			os.Exit(1)
-		}
-		uartRW = sp
-		slog.Info("ROUTER: upstream KISS serial", "device", *kissSerial, "baud", *serialBaud)
+	sp, err := openSerial(serialPort, serialBaud)
+	if err != nil {
+		slog.Error("open serial", "device", serialPort, "err", err)
+		os.Exit(1)
 	}
-
-	uartPHY := ax25.NewKISSSerialPHY(uartRW, ax25.KISSSerialPHYConfig{})
+	kissCfg := phy.NewKISSSerialConfigFromConfig(cfg)
+	kissCfg.Port = sp
+	uartPHY, err := phy.NewKISSSerialPHY(kissCfg)
+	if err != nil {
+		slog.Error("create KISS serial PHY", "err", err)
+		os.Exit(1)
+	}
 
 	// ── build router ──
 	router := ax25.NewRouter()
@@ -238,14 +230,14 @@ func main() {
 	slog.Info("ROUTER: UART PHY started", "mode", "default")
 
 	// ── TCP KISS server ──
-	pool := newTCPPool(router, *maxClients)
+	pool := newTCPPool(router, maxClients)
 
-	ln, err := net.Listen("tcp", *listen)
+	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		slog.Error("listen", "addr", *listen, "err", err)
+		slog.Error("listen", "addr", listenAddr, "err", err)
 		os.Exit(1)
 	}
-	slog.Info("ROUTER: TCP KISS server listening", "addr", *listen, "max_clients", *maxClients)
+	slog.Info("ROUTER: TCP KISS server listening", "addr", listenAddr, "max_clients", maxClients)
 	go serveTCP(ln, pool)
 
 	slog.Info("ROUTER: running")

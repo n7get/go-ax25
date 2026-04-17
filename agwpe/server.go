@@ -19,27 +19,19 @@ type ServerConfig struct {
 	PortDescription string
 	TXQueueDepth    int
 	MaxConns        int
+	ReadBufSize     int
 	OnConnected     func(srv *Server)
 	OnDisconnected  func(srv *Server)
 }
 
-const (
-	defaultServerTXQueueDepth = 64
-	defaultServerMaxConns     = 4
-)
-
-func (c *ServerConfig) txQueueDepth() int {
-	if c.TXQueueDepth > 0 {
-		return c.TXQueueDepth
+// NewServerConfigFromConfig populates ServerConfig from ax25.Config.
+func NewServerConfigFromConfig(cfg *ax25.Config) ServerConfig {
+	return ServerConfig{
+		Port:         cfg.GetInt("agwpe.server.port", 8000),
+		TXQueueDepth: cfg.GetInt("agwpe.server.tx_queue_depth", 64),
+		MaxConns:     cfg.GetInt("agwpe.server.max_conns", 4),
+		ReadBufSize:  cfg.GetInt("agwpe.server.read_buf", 4132),
 	}
-	return defaultServerTXQueueDepth
-}
-
-func (c *ServerConfig) maxConns() int {
-	if c.MaxConns > 0 {
-		return c.MaxConns
-	}
-	return defaultServerMaxConns
 }
 
 func (c *ServerConfig) portDesc() string {
@@ -84,11 +76,20 @@ type Server struct {
 
 // NewServer creates a new AGWPE server.
 func NewServer(cfg ServerConfig, router *ax25.Router) *Server {
-	n := cfg.maxConns()
+	if cfg.MaxConns <= 0 {
+		cfg.MaxConns = 4
+	}
+	if cfg.TXQueueDepth <= 0 {
+		cfg.TXQueueDepth = 64
+	}
+	if cfg.ReadBufSize <= 0 {
+		cfg.ReadBufSize = MaxFrameSize
+	}
+	n := cfg.MaxConns
 	s := &Server{
 		cfg:           cfg,
 		router:        router,
-		txCh:          make(chan Frame, cfg.txQueueDepth()),
+		txCh:          make(chan Frame, cfg.TXQueueDepth),
 		slots:         make([]*connSlot, n),
 		pendingFrames: make([]atomic.Int64, n),
 	}
@@ -128,7 +129,7 @@ func (s *Server) HandleConn(c net.Conn) {
 	_ = s.router.UnregisterPort(&s.routerPort)
 	close(s.txCh)
 	wg.Wait()
-	s.txCh = make(chan Frame, s.cfg.txQueueDepth())
+	s.txCh = make(chan Frame, s.cfg.TXQueueDepth)
 
 	s.disconnectAllSlots()
 
@@ -145,7 +146,7 @@ func (s *Server) rxLoop(c net.Conn) {
 	dec := NewDecoder(func(f *Frame) {
 		s.handleClientFrame(f)
 	})
-	buf := make([]byte, MaxFrameSize)
+	buf := make([]byte, s.cfg.ReadBufSize)
 	for {
 		n, err := c.Read(buf)
 		if n > 0 {

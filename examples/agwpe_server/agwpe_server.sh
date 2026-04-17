@@ -7,4 +7,4 @@
 #  -port string
 #    	serial port device (default "/dev/ttyUSB0")
 
-go run main.go -debug -baud=57600 -port=/dev/tty.usbmodem114201
+go run main.go -debug

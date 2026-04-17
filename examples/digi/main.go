@@ -35,7 +35,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	serialRW, err := serial.Open(cfg.GetStr("serial.device", "/dev/ttyUSB0"), &serial.Mode{BaudRate: cfg.GetInt("serial.baud", 9600)})
+	serialRW, err := serial.Open(cfg.GetStr("kiss.serial.device", "/dev/ttyUSB0"), &serial.Mode{BaudRate: cfg.GetInt("kiss.serial.baud", 9600)})
 	if err != nil {
 		slog.Error("open serial port", "err", err)
 		os.Exit(1)

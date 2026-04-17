@@ -17,24 +17,21 @@ type ClientConfig struct {
 	ConnectTimeout time.Duration
 	ReconnectDelay time.Duration
 	TXQueueDepth   int
+	ReadBufSize    int
 	OnRxFrame      FrameCallback
 	OnError        ax25.ErrorCallback
 }
 
-const defaultClientTXQueueDepth = 8
-
-func (c *ClientConfig) withDefaults() ClientConfig {
-	out := *c
-	if out.ConnectTimeout == 0 {
-		out.ConnectTimeout = 6 * time.Second
+// NewClientConfigFromConfig populates ClientConfig from ax25.Config.
+func NewClientConfigFromConfig(cfg *ax25.Config) ClientConfig {
+	return ClientConfig{
+		Host:           cfg.GetStr("agwpe.client.host", "localhost"),
+		Port:           uint16(cfg.GetInt("agwpe.client.port", 8000)),
+		ConnectTimeout: 6 * time.Second, // Could be made configurable
+		ReconnectDelay: 5 * time.Second, // Could be made configurable
+		TXQueueDepth:   cfg.GetInt("agwpe.client.tx_queue_depth", 8),
+		ReadBufSize:    cfg.GetInt("agwpe.client.read_buf", 4132),
 	}
-	if out.ReconnectDelay == 0 {
-		out.ReconnectDelay = 5 * time.Second
-	}
-	if out.TXQueueDepth == 0 {
-		out.TXQueueDepth = defaultClientTXQueueDepth
-	}
-	return out
 }
 
 // Client is a non-blocking AGWPE TCP client.
@@ -63,7 +60,18 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if cfg.OnRxFrame == nil {
 		return nil, fmt.Errorf("agwpe: Client: OnRxFrame must not be nil")
 	}
-	cfg = cfg.withDefaults()
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = 6 * time.Second
+	}
+	if cfg.ReconnectDelay == 0 {
+		cfg.ReconnectDelay = 5 * time.Second
+	}
+	if cfg.TXQueueDepth == 0 {
+		cfg.TXQueueDepth = 8
+	}
+	if cfg.ReadBufSize == 0 {
+		cfg.ReadBufSize = MaxFrameSize
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Client{
 		cfg:    cfg,
@@ -177,7 +185,7 @@ func (c *Client) rxLoop() {
 			c.cfg.OnRxFrame(f)
 		})
 
-		buf := make([]byte, MaxFrameSize)
+		buf := make([]byte, c.cfg.ReadBufSize)
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 			n, err := conn.Read(buf)

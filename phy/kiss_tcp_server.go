@@ -46,20 +46,20 @@ func (c *KISSTCPServerConn) RemoteAddr() net.Addr { return c.conn.RemoteAddr() }
 type KISSTCPServerConfig struct {
 	Port           uint16
 	TXQueueDepth   int
+	ReadBufSize    int
 	OnConnected    func(conn *KISSTCPServerConn)
 	OnDisconnected func(conn *KISSTCPServerConn)
 	OnRxFrame      func(conn *KISSTCPServerConn, frame *ax25.Frame)
 	OnError        ax25.ErrorCallback
 }
 
-const defaultKISSTCPServerTXQueueDepth = 8
-
-func (c *KISSTCPServerConfig) withDefaults() KISSTCPServerConfig {
-	out := *c
-	if out.TXQueueDepth == 0 {
-		out.TXQueueDepth = defaultKISSTCPServerTXQueueDepth
+// NewKISSTCPServerConfigFromConfig populates KISSTCPServerConfig from ax25.Config.
+func NewKISSTCPServerConfigFromConfig(cfg *ax25.Config) KISSTCPServerConfig {
+	return KISSTCPServerConfig{
+		Port:         uint16(cfg.GetInt("kiss.server.port", 8100)),
+		TXQueueDepth: cfg.GetInt("kiss.server.tx_queue_depth", 8),
+		ReadBufSize:  cfg.GetInt("kiss.server.read_buf", 4096),
 	}
-	return out
 }
 
 // KISSTCPServerPHY is a KISS-over-TCP server PHY driver.
@@ -82,7 +82,12 @@ func NewKISSTCPServerPHY(cfg KISSTCPServerConfig) (*KISSTCPServerPHY, error) {
 	if cfg.OnRxFrame == nil {
 		return nil, fmt.Errorf("phy: KISSTCPServerPHY: OnRxFrame must not be nil")
 	}
-	cfg = cfg.withDefaults()
+	if cfg.TXQueueDepth == 0 {
+		cfg.TXQueueDepth = 8
+	}
+	if cfg.ReadBufSize == 0 {
+		cfg.ReadBufSize = 4096
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &KISSTCPServerPHY{cfg: cfg, ctx: ctx, cancel: cancel}, nil
 }
@@ -179,7 +184,7 @@ func (p *KISSTCPServerPHY) handleConn(netConn net.Conn) {
 		p.cfg.OnRxFrame(c, frame)
 	})
 
-	buf := make([]byte, 4096)
+	buf := make([]byte, p.cfg.ReadBufSize)
 	for {
 		n, err := netConn.Read(buf)
 		if n > 0 {

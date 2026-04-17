@@ -38,17 +38,55 @@ var (
 
 // DefaultSchema is the built-in parameter schema.
 var DefaultSchema = []ConfigParam{
+	// Station identity
+	{Key: "station.callsign", DefaultValue: "N0CALL", Description: "Station callsign"},
+	{Key: "station.ssid", DefaultValue: "0", Description: "Station SSID (0-15)"},
+
+	// Beacon
 	{Key: "beacon.source", DefaultValue: "", Description: "Beacon source callsign (empty = disabled)"},
 	{Key: "beacon.destination", DefaultValue: "BEACON", Description: "Beacon destination callsign"},
 	{Key: "beacon.via", DefaultValue: "", Description: "Comma-separated digipeater path"},
 	{Key: "beacon.text", DefaultValue: "go-ax25", Description: "Beacon text (supports \\r \\n \\xHH escapes)"},
 	{Key: "beacon.every", DefaultValue: "0", Description: "Beacon interval in minutes (0 = disabled)"},
+
+	// Digipeater
 	{Key: "digi.callsign", DefaultValue: "", Description: "Digipeater callsign (empty = disabled)"},
+
+	// AX.25 connected-mode timers
 	{Key: "conn.t1_ms", DefaultValue: "10000", Description: "T1 acknowledgement timeout (ms)"},
 	{Key: "conn.t2_ms", DefaultValue: "1000", Description: "T2 response delay timeout (ms)"},
 	{Key: "conn.t3_ms", DefaultValue: "180000", Description: "T3 inactive link timeout (ms)"},
 	{Key: "conn.n2_retries", DefaultValue: "10", Description: "N2 maximum retry count"},
 	{Key: "conn.window_size", DefaultValue: "4", Description: "k: maximum outstanding I-frames (1-7)"},
+
+	// Router
+	{Key: "router.port_queue_depth", DefaultValue: "32", Description: "Default per-port frame queue depth"},
+
+	// AGWPE client
+	{Key: "agwpe.client.read_buf", DefaultValue: "4132", Description: "AGWPE client rx read buffer size (bytes)"},
+	{Key: "agwpe.client.tx_queue_depth", DefaultValue: "8", Description: "AGWPE client TX channel depth"},
+
+	// AGWPE server
+	{Key: "agwpe.server.port", DefaultValue: "8000", Description: "AGWPE TCP listen port"},
+	{Key: "agwpe.server.read_buf", DefaultValue: "4132", Description: "AGWPE server rx read buffer size (bytes)"},
+	{Key: "agwpe.server.tx_queue_depth", DefaultValue: "64", Description: "AGWPE server TX channel depth"},
+	{Key: "agwpe.server.max_conns", DefaultValue: "4", Description: "AGWPE server max simultaneous AX.25 connections"},
+
+	// KISS serial PHY
+	{Key: "kiss.serial.device", DefaultValue: "/dev/ttyUSB0", Description: "Serial device for KISS TNC"},
+	{Key: "kiss.serial.baud", DefaultValue: "9600", Description: "Serial baud rate"},
+	{Key: "kiss.serial.read_buf", DefaultValue: "1024", Description: "KISS serial rx read buffer size (bytes)"},
+	{Key: "kiss.serial.rx_queue_depth", DefaultValue: "64", Description: "KISS serial rx frame queue depth"},
+	{Key: "kiss.serial.tx_queue_depth", DefaultValue: "32", Description: "KISS serial tx frame queue depth"},
+
+	// KISS TCP client PHY
+	{Key: "kiss.client.read_buf", DefaultValue: "4096", Description: "KISS TCP client rx read buffer size (bytes)"},
+	{Key: "kiss.client.tx_queue_depth", DefaultValue: "8", Description: "KISS TCP client TX channel depth"},
+
+	// KISS TCP server PHY
+	{Key: "kiss.server.port", DefaultValue: "8100", Description: "KISS TCP listen port"},
+	{Key: "kiss.server.read_buf", DefaultValue: "4096", Description: "KISS TCP server rx read buffer size per client (bytes)"},
+	{Key: "kiss.server.tx_queue_depth", DefaultValue: "8", Description: "KISS TCP server TX channel depth per client"},
 }
 
 // NewConfig creates a Config with the given schema (merged with DefaultSchema).
@@ -80,9 +118,14 @@ func (c *Config) LoadINI(path string) error {
 	defer c.mu.Unlock()
 
 	scanner := bufio.NewScanner(f)
+	var section string
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
 			continue
 		}
 		idx := strings.IndexByte(line, '=')
@@ -91,6 +134,9 @@ func (c *Config) LoadINI(path string) error {
 		}
 		key := strings.TrimSpace(line[:idx])
 		val := strings.TrimSpace(line[idx+1:])
+		if section != "" {
+			key = section + "." + key
+		}
 		c.values[key] = val
 	}
 	return scanner.Err()

@@ -15,6 +15,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
@@ -28,9 +29,7 @@ import (
 )
 
 func main() {
-	serialPort := flag.String("port", "/dev/ttyUSB0", "serial port device")
-	serialBaud := flag.Int("baud", 9600, "serial baud rate")
-	agwpeAddr := flag.String("addr", ":8000", "AGWPE TCP listen address")
+	cfgPath := flag.String("config", "ax25.ini", "INI config file")
 	debug := flag.Bool("debug", false, "enable debug logging")
 	flag.Parse()
 
@@ -40,20 +39,31 @@ func main() {
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})))
 
-	slog.Info("starting agwpe_server", "serial", *serialPort, "baud", *serialBaud, "agwpe", *agwpeAddr)
+	cfg := ax25.NewConfig(nil)
+	if err := cfg.LoadINI(*cfgPath); err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+
+	serialPort := cfg.GetStr("kiss.serial.device", "/dev/ttyUSB0")
+	serialBaud := cfg.GetInt("kiss.serial.baud", 9600)
+	agwpePort := cfg.GetInt("agwpe.server.port", 8000)
+
+	slog.Info("starting agwpe_server", "serial", serialPort, "baud", serialBaud, "agwpe_port", agwpePort)
 
 	router := ax25.NewRouter()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	serialRW, err := serial.Open(*serialPort, &serial.Mode{BaudRate: *serialBaud})
+	serialRW, err := serial.Open(serialPort, &serial.Mode{BaudRate: serialBaud})
 	if err != nil {
 		log.Fatalf("open serial port: %v", err)
 	}
 	defer serialRW.Close()
-	slog.Debug("serial port opened", "port", *serialPort, "baud", *serialBaud)
+	slog.Debug("serial port opened", "port", serialPort, "baud", serialBaud)
 
-	kissPHY, err := phy.NewKISSSerialPHY(phy.KISSSerialConfig{Port: serialRW})
+	kissCfg := phy.NewKISSSerialConfigFromConfig(cfg)
+	kissCfg.Port = serialRW
+	kissPHY, err := phy.NewKISSSerialPHY(kissCfg)
 	if err != nil {
 		log.Fatalf("serial PHY: %v", err)
 	}
@@ -87,17 +97,14 @@ func main() {
 	}()
 
 	agwpeSrv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
-		Addr: *agwpeAddr,
-		ServerConfig: agwpe.ServerConfig{
-			Port:            0,
-			PortDescription: "Serial KISS TNC",
-		},
+		Addr:         fmt.Sprintf(":%d", agwpePort),
+		ServerConfig: agwpe.NewServerConfigFromConfig(cfg),
 	}, router)
 	if err := agwpeSrv.Start(); err != nil {
 		log.Fatalf("start AGWPE server: %v", err)
 	}
 	defer agwpeSrv.Stop()
-	slog.Debug("AGWPE TCP server started", "addr", *agwpeAddr)
+	slog.Debug("AGWPE TCP server started", "addr", agwpePort)
 
 	slog.Info("agwpe_server running - press Ctrl+C to stop")
 

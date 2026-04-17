@@ -161,3 +161,36 @@ func TestClient_SendNotConnected(t *testing.T) {
 		t.Errorf("expected ErrNotConnected, got %v", err)
 	}
 }
+func TestNewClientConfigFromConfig_Defaults(t *testing.T) {
+	cfg := ax25.NewConfig(nil)
+	c := agwpe.NewClientConfigFromConfig(cfg)
+	if c.Host != "localhost" {
+		t.Errorf("Host: got %q, want \"localhost\"", c.Host)
+	}
+	if c.Port != 8000 {
+		t.Errorf("Port: got %d, want 8000", c.Port)
+	}
+	if c.TXQueueDepth != 8 {
+		t.Errorf("TXQueueDepth: got %d, want 8", c.TXQueueDepth)
+	}
+	if c.ReadBufSize != 4132 {
+		t.Errorf("ReadBufSize: got %d, want 4132", c.ReadBufSize)
+	}
+}
+
+func TestNewClientConfigFromConfig_Override(t *testing.T) {
+	cfg := ax25.NewConfig(nil)
+	cfg.Set("agwpe.client.host", "10.0.0.1")
+	cfg.Set("agwpe.client.port", "9000")
+	cfg.Set("agwpe.client.tx_queue_depth", "16")
+	c := agwpe.NewClientConfigFromConfig(cfg)
+	if c.Host != "10.0.0.1" {
+		t.Errorf("Host: got %q, want \"10.0.0.1\"", c.Host)
+	}
+	if c.Port != 9000 {
+		t.Errorf("Port: got %d, want 9000", c.Port)
+	}
+	if c.TXQueueDepth != 16 {
+		t.Errorf("TXQueueDepth: got %d, want 16", c.TXQueueDepth)
+	}
+}

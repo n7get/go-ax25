@@ -13,8 +13,18 @@ import (
 type KISSSerialConfig struct {
 	Port         io.ReadWriter
 	TXQueueDepth int
+	ReadBufSize  int
 	OnRxFrame    ax25.FrameCallback
 	OnError      ax25.ErrorCallback
+}
+
+// NewKISSSerialConfigFromConfig populates KISSSerialConfig from ax25.Config.
+// The caller must set Port to the opened io.ReadWriter before use.
+func NewKISSSerialConfigFromConfig(cfg *ax25.Config) KISSSerialConfig {
+	return KISSSerialConfig{
+		TXQueueDepth: cfg.GetInt("kiss.serial.tx_queue_depth", 32),
+		ReadBufSize:  cfg.GetInt("kiss.serial.read_buf", 1024),
+	}
 }
 
 // NewKISSSerialPHY creates a KISSSerialPHY backed by the provided io.ReadWriter.
@@ -26,5 +36,6 @@ func NewKISSSerialPHY(cfg KISSSerialConfig) (*ax25.KISSSerialPHY, error) {
 	}
 	return ax25.NewKISSSerialPHY(cfg.Port, ax25.KISSSerialPHYConfig{
 		TxQueueDepth: cfg.TXQueueDepth,
+		ReadBufSize:  cfg.ReadBufSize,
 	}), nil
 }

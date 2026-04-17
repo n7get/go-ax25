@@ -12,4 +12,4 @@
 #  -stats duration
 #    	stats print interval (0 to disable) (default 30s)
 
-go run main.go -debug -baud=57600 -kiss-serial=/dev/tty.usbmodem114201
+go run main.go -debug

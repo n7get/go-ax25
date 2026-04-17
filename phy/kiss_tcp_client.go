@@ -18,22 +18,21 @@ type KISSTCPClientConfig struct {
 	ConnectTimeout time.Duration
 	ReconnectDelay time.Duration
 	TXQueueDepth   int
+	ReadBufSize    int
 	OnRxFrame      ax25.FrameCallback
 	OnError        ax25.ErrorCallback
 }
 
-func (c *KISSTCPClientConfig) withDefaults() KISSTCPClientConfig {
-	out := *c
-	if out.ConnectTimeout == 0 {
-		out.ConnectTimeout = 6 * time.Second
+// NewKISSTCPClientConfigFromConfig populates KISSTCPClientConfig from ax25.Config.
+func NewKISSTCPClientConfigFromConfig(cfg *ax25.Config) KISSTCPClientConfig {
+	return KISSTCPClientConfig{
+		Host:           cfg.GetStr("kiss.client.host", "localhost"),
+		Port:           uint16(cfg.GetInt("kiss.client.port", 8001)),
+		ConnectTimeout: 6 * time.Second, // Could be made configurable
+		ReconnectDelay: 5 * time.Second, // Could be made configurable
+		TXQueueDepth:   cfg.GetInt("kiss.client.tx_queue_depth", 8),
+		ReadBufSize:    cfg.GetInt("kiss.client.read_buf", 4096),
 	}
-	if out.ReconnectDelay == 0 {
-		out.ReconnectDelay = 5 * time.Second
-	}
-	if out.TXQueueDepth == 0 {
-		out.TXQueueDepth = defaultKISSTCPClientTXQueueDepth
-	}
-	return out
 }
 
 // KISSTCPClientPHY is a KISS-over-TCP client PHY driver.
@@ -63,7 +62,18 @@ func NewKISSTCPClientPHY(cfg KISSTCPClientConfig) (*KISSTCPClientPHY, error) {
 	if cfg.OnRxFrame == nil {
 		return nil, fmt.Errorf("phy: KISSTCPClientPHY: OnRxFrame must not be nil")
 	}
-	cfg = cfg.withDefaults()
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = 6 * time.Second
+	}
+	if cfg.ReconnectDelay == 0 {
+		cfg.ReconnectDelay = 5 * time.Second
+	}
+	if cfg.TXQueueDepth == 0 {
+		cfg.TXQueueDepth = 8
+	}
+	if cfg.ReadBufSize == 0 {
+		cfg.ReadBufSize = 4096
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &KISSTCPClientPHY{
 		cfg:    cfg,
@@ -165,7 +175,7 @@ func (p *KISSTCPClientPHY) rxLoop() {
 			p.cfg.OnRxFrame(frame)
 		})
 
-		buf := make([]byte, 4096)
+		buf := make([]byte, p.cfg.ReadBufSize)
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 			n, err := conn.Read(buf)

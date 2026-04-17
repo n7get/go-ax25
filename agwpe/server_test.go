@@ -192,3 +192,32 @@ func TestServerTXQueueFull(t *testing.T) {
 		}
 	}
 }
+func TestNewServerConfigFromConfig_Defaults(t *testing.T) {
+	cfg := ax25.NewConfig(nil)
+	c := agwpe.NewServerConfigFromConfig(cfg)
+	if c.Port != 8000 {
+		t.Errorf("Port: got %d, want 8000", c.Port)
+	}
+	if c.TXQueueDepth != 64 {
+		t.Errorf("TXQueueDepth: got %d, want 64", c.TXQueueDepth)
+	}
+	if c.MaxConns != 4 {
+		t.Errorf("MaxConns: got %d, want 4", c.MaxConns)
+	}
+	if c.ReadBufSize != 4132 {
+		t.Errorf("ReadBufSize: got %d, want 4132", c.ReadBufSize)
+	}
+}
+
+func TestNewServerConfigFromConfig_Override(t *testing.T) {
+	cfg := ax25.NewConfig(nil)
+	cfg.Set("agwpe.server.port", "9100")
+	cfg.Set("agwpe.server.max_conns", "8")
+	c := agwpe.NewServerConfigFromConfig(cfg)
+	if c.Port != 9100 {
+		t.Errorf("Port: got %d, want 9100", c.Port)
+	}
+	if c.MaxConns != 8 {
+		t.Errorf("MaxConns: got %d, want 8", c.MaxConns)
+	}
+}

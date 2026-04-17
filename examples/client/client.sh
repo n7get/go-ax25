@@ -1,4 +1,5 @@
 go run main.go \
+	-debug \
 	-kiss-serial=/dev/tty.usbmodem114201 \
 	-baud=57600 \
 	-local=n7get \

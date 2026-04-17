@@ -55,3 +55,51 @@ func TestConfig_MissingFile(t *testing.T) {
 		t.Errorf("LoadINI missing file: expected nil, got %v", err)
 	}
 }
+
+func TestConfig_LoadINI_Sections(t *testing.T) {
+	f, err := os.CreateTemp("", "ax25_config_*.ini")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString("[beacon]\n")
+	f.WriteString("source = W1AW\n")
+	f.WriteString("every = 10\n")
+	f.WriteString("\n")
+	f.WriteString("[kiss.client]\n")
+	f.WriteString("host = 192.168.1.1\n")
+	f.WriteString("port = 9001\n")
+	f.Close()
+
+	cfg := NewConfig(nil)
+	if err := cfg.LoadINI(f.Name()); err != nil {
+		t.Fatalf("LoadINI: %v", err)
+	}
+	if got := cfg.GetStr("beacon.source", ""); got != "W1AW" {
+		t.Errorf("beacon.source: got %q, want \"W1AW\"", got)
+	}
+	if got := cfg.GetInt("beacon.every", 0); got != 10 {
+		t.Errorf("beacon.every: got %d, want 10", got)
+	}
+	if got := cfg.GetStr("kiss.client.host", ""); got != "192.168.1.1" {
+		t.Errorf("kiss.client.host: got %q, want \"192.168.1.1\"", got)
+	}
+	if got := cfg.GetInt("kiss.client.port", 0); got != 9001 {
+		t.Errorf("kiss.client.port: got %d, want 9001", got)
+	}
+}
+
+func TestConfig_GetBool(t *testing.T) {
+	cfg := NewConfig(nil)
+	cfg.Set("foo", "true")
+	if got := cfg.GetBool("foo", false); !got {
+		t.Errorf("GetBool: got false, want true")
+	}
+	cfg.Set("foo", "false")
+	if got := cfg.GetBool("foo", true); got {
+		t.Errorf("GetBool: got true, want false")
+	}
+	if got := cfg.GetBool("missing", true); !got {
+		t.Errorf("GetBool missing key: got false, want default true")
+	}
+}

@@ -39,6 +39,7 @@ type KISSSerialPHYConfig struct {
 	Port         byte
 	RxQueueDepth int
 	TxQueueDepth int
+	ReadBufSize  int
 }
 
 // KISSSerialPHY implements PHY over a KISS-framed io.ReadWriter.
@@ -58,10 +59,13 @@ type KISSSerialPHY struct {
 // NewKISSSerialPHY creates a KISSSerialPHY that reads from and writes to rw.
 func NewKISSSerialPHY(rw io.ReadWriter, cfg KISSSerialPHYConfig) *KISSSerialPHY {
 	if cfg.RxQueueDepth <= 0 {
-		cfg.RxQueueDepth = defaultKISSSerialRxQueueDepth
+		cfg.RxQueueDepth = 64
 	}
 	if cfg.TxQueueDepth <= 0 {
-		cfg.TxQueueDepth = defaultKISSSerialTxQueueDepth
+		cfg.TxQueueDepth = 32
+	}
+	if cfg.ReadBufSize <= 0 {
+		cfg.ReadBufSize = 1024
 	}
 	return &KISSSerialPHY{
 		cfg:  cfg,
@@ -140,7 +144,7 @@ func (p *KISSSerialPHY) rxLoop(ctx context.Context) {
 			slog.Warn("ax25: KISSSerialPHY: rx queue full, dropping frame")
 		}
 	})
-	buf := make([]byte, 1024)
+	buf := make([]byte, p.cfg.ReadBufSize)
 	for {
 		select {
 		case <-ctx.Done():
@@ -183,7 +187,11 @@ func (p *KISSSerialPHY) txLoop(ctx context.Context) {
 // Compile-time assertion.
 var _ PHY = (*KISSSerialPHY)(nil)
 
-const (
-	defaultKISSSerialRxQueueDepth = 64
-	defaultKISSSerialTxQueueDepth = 32
-)
+// KISSSerialConfigFromConfig populates KISSSerialPHYConfig from Config.
+func KISSSerialConfigFromConfig(cfg *Config) KISSSerialPHYConfig {
+	return KISSSerialPHYConfig{
+		RxQueueDepth: cfg.GetInt("kiss.serial.rx_queue_depth", 64),
+		TxQueueDepth: cfg.GetInt("kiss.serial.tx_queue_depth", 32),
+		ReadBufSize:  cfg.GetInt("kiss.serial.read_buf", 1024),
+	}
+}

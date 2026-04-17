@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	go.bug.st/serial v1.6.2
-	gopkg.in/ini.v1 v1.67.0
+	gopkg.in/ini.v1 v1.67.1
 )
 
 require (

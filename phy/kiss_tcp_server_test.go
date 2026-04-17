@@ -115,3 +115,29 @@ func TestKISSTCPServerPHY_InvalidConfig(t *testing.T) {
 		t.Error("expected error for nil OnRxFrame")
 	}
 }
+func TestNewKISSTCPServerConfigFromConfig_Defaults(t *testing.T) {
+	cfg := ax25.NewConfig(nil)
+	c := phy.NewKISSTCPServerConfigFromConfig(cfg)
+	if c.Port != 8100 {
+		t.Errorf("Port: got %d, want 8100", c.Port)
+	}
+	if c.TXQueueDepth != 8 {
+		t.Errorf("TXQueueDepth: got %d, want 8", c.TXQueueDepth)
+	}
+	if c.ReadBufSize != 4096 {
+		t.Errorf("ReadBufSize: got %d, want 4096", c.ReadBufSize)
+	}
+}
+
+func TestNewKISSTCPServerConfigFromConfig_Override(t *testing.T) {
+	cfg := ax25.NewConfig(nil)
+	cfg.Set("kiss.server.port", "9200")
+	cfg.Set("kiss.server.tx_queue_depth", "32")
+	c := phy.NewKISSTCPServerConfigFromConfig(cfg)
+	if c.Port != 9200 {
+		t.Errorf("Port: got %d, want 9200", c.Port)
+	}
+	if c.TXQueueDepth != 32 {
+		t.Errorf("TXQueueDepth: got %d, want 32", c.TXQueueDepth)
+	}
+}

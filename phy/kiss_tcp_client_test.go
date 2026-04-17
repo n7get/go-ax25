@@ -155,3 +155,32 @@ func TestKISSTCPClientPHY_TXQueueFull(t *testing.T) {
 		t.Errorf("expected ErrTXQueueFull, got %v", err)
 	}
 }
+func TestNewKISSTCPClientConfigFromConfig_Defaults(t *testing.T) {
+	cfg := ax25.NewConfig(nil)
+	c := phy.NewKISSTCPClientConfigFromConfig(cfg)
+	if c.Host != "localhost" {
+		t.Errorf("Host: got %q, want \"localhost\"", c.Host)
+	}
+	if c.Port != 8001 {
+		t.Errorf("Port: got %d, want 8001", c.Port)
+	}
+	if c.TXQueueDepth != 8 {
+		t.Errorf("TXQueueDepth: got %d, want 8", c.TXQueueDepth)
+	}
+	if c.ReadBufSize != 4096 {
+		t.Errorf("ReadBufSize: got %d, want 4096", c.ReadBufSize)
+	}
+}
+
+func TestNewKISSTCPClientConfigFromConfig_Override(t *testing.T) {
+	cfg := ax25.NewConfig(nil)
+	cfg.Set("kiss.client.host", "192.168.1.50")
+	cfg.Set("kiss.client.port", "8200")
+	c := phy.NewKISSTCPClientConfigFromConfig(cfg)
+	if c.Host != "192.168.1.50" {
+		t.Errorf("Host: got %q, want \"192.168.1.50\"", c.Host)
+	}
+	if c.Port != 8200 {
+		t.Errorf("Port: got %d, want 8200", c.Port)
+	}
+}
