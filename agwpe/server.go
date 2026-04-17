@@ -23,18 +23,23 @@ type ServerConfig struct {
 	OnDisconnected  func(srv *Server)
 }
 
+const (
+	defaultServerTXQueueDepth = 64
+	defaultServerMaxConns     = 4
+)
+
 func (c *ServerConfig) txQueueDepth() int {
 	if c.TXQueueDepth > 0 {
 		return c.TXQueueDepth
 	}
-	return 64
+	return defaultServerTXQueueDepth
 }
 
 func (c *ServerConfig) maxConns() int {
 	if c.MaxConns > 0 {
 		return c.MaxConns
 	}
-	return 4
+	return defaultServerMaxConns
 }
 
 func (c *ServerConfig) portDesc() string {
@@ -140,7 +145,7 @@ func (s *Server) rxLoop(c net.Conn) {
 	dec := NewDecoder(func(f *Frame) {
 		s.handleClientFrame(f)
 	})
-	buf := make([]byte, 4096)
+	buf := make([]byte, MaxFrameSize)
 	for {
 		n, err := c.Read(buf)
 		if n > 0 {

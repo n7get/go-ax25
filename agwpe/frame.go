@@ -17,7 +17,7 @@ import (
 const (
 	HeaderSize   = 36
 	CallsignLen  = 10
-	MaxDataLen   = 512
+	MaxDataLen   = 4096
 	MaxFrameSize = HeaderSize + MaxDataLen
 )
 

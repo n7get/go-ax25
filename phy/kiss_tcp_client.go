@@ -31,7 +31,7 @@ func (c *KISSTCPClientConfig) withDefaults() KISSTCPClientConfig {
 		out.ReconnectDelay = 5 * time.Second
 	}
 	if out.TXQueueDepth == 0 {
-		out.TXQueueDepth = 8
+		out.TXQueueDepth = defaultKISSTCPClientTXQueueDepth
 	}
 	return out
 }
@@ -165,7 +165,7 @@ func (p *KISSTCPClientPHY) rxLoop() {
 			p.cfg.OnRxFrame(frame)
 		})
 
-		buf := make([]byte, 1024)
+		buf := make([]byte, 4096)
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 			n, err := conn.Read(buf)
@@ -218,3 +218,5 @@ func (p *KISSTCPClientPHY) txLoop(conn net.Conn, done chan struct{}) {
 		}
 	}
 }
+
+const defaultKISSTCPClientTXQueueDepth = 8

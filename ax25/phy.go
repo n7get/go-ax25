@@ -58,10 +58,10 @@ type KISSSerialPHY struct {
 // NewKISSSerialPHY creates a KISSSerialPHY that reads from and writes to rw.
 func NewKISSSerialPHY(rw io.ReadWriter, cfg KISSSerialPHYConfig) *KISSSerialPHY {
 	if cfg.RxQueueDepth <= 0 {
-		cfg.RxQueueDepth = 32
+		cfg.RxQueueDepth = defaultKISSSerialRxQueueDepth
 	}
 	if cfg.TxQueueDepth <= 0 {
-		cfg.TxQueueDepth = 32
+		cfg.TxQueueDepth = defaultKISSSerialTxQueueDepth
 	}
 	return &KISSSerialPHY{
 		cfg:  cfg,
@@ -140,7 +140,7 @@ func (p *KISSSerialPHY) rxLoop(ctx context.Context) {
 			slog.Warn("ax25: KISSSerialPHY: rx queue full, dropping frame")
 		}
 	})
-	buf := make([]byte, 512)
+	buf := make([]byte, 1024)
 	for {
 		select {
 		case <-ctx.Done():
@@ -182,3 +182,8 @@ func (p *KISSSerialPHY) txLoop(ctx context.Context) {
 
 // Compile-time assertion.
 var _ PHY = (*KISSSerialPHY)(nil)
+
+const (
+	defaultKISSSerialRxQueueDepth = 64
+	defaultKISSSerialTxQueueDepth = 32
+)

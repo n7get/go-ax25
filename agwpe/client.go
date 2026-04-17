@@ -21,6 +21,8 @@ type ClientConfig struct {
 	OnError        ax25.ErrorCallback
 }
 
+const defaultClientTXQueueDepth = 8
+
 func (c *ClientConfig) withDefaults() ClientConfig {
 	out := *c
 	if out.ConnectTimeout == 0 {
@@ -30,7 +32,7 @@ func (c *ClientConfig) withDefaults() ClientConfig {
 		out.ReconnectDelay = 5 * time.Second
 	}
 	if out.TXQueueDepth == 0 {
-		out.TXQueueDepth = 8
+		out.TXQueueDepth = defaultClientTXQueueDepth
 	}
 	return out
 }
@@ -175,7 +177,7 @@ func (c *Client) rxLoop() {
 			c.cfg.OnRxFrame(f)
 		})
 
-		buf := make([]byte, 4096)
+		buf := make([]byte, MaxFrameSize)
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 			n, err := conn.Read(buf)

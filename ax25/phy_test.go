@@ -13,18 +13,18 @@ import (
 )
 
 // bidirectionalPipe creates two io.ReadWriters connected back-to-back.
-func newBidirectionalPipe() (io.ReadWriter, io.ReadWriter) {
-	arToB, bToA := io.Pipe()
-	bToA2, aToB := io.Pipe()
-	_ = bToA
-	_ = bToA2
-	// A reads from arToB, writes to aToB
-	// B reads from bToA2... let's use a simpler approach with sync.Pipe pairs
-	_ = arToB
-	_ = aToB
-	// Use channel-based loopback instead
-	return newChanRW(), newChanRW()
-}
+// func newBidirectionalPipe() (io.ReadWriter, io.ReadWriter) {
+// 	arToB, bToA := io.Pipe()
+// 	bToA2, aToB := io.Pipe()
+// 	_ = bToA
+// 	_ = bToA2
+// 	// A reads from arToB, writes to aToB
+// 	// B reads from bToA2... let's use a simpler approach with sync.Pipe pairs
+// 	_ = arToB
+// 	_ = aToB
+// 	// Use channel-based loopback instead
+// 	return newChanRW(), newChanRW()
+// }
 
 type chanRW struct {
 	mu     sync.Mutex
@@ -81,9 +81,9 @@ func (c *chanRW) Close() {
 }
 
 // loopback connects two chanRW so writes to A appear as reads on B and vice versa.
-type loopbackPair struct {
-	aWrite, bWrite *chanRW
-}
+// type loopbackPair struct {
+// 	aWrite, bWrite *chanRW
+// }
 
 type loopbackRW struct {
 	reader *chanRW

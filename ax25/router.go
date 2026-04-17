@@ -6,6 +6,7 @@ package ax25
 import (
 	"errors"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -42,7 +43,8 @@ type Port struct {
 	Mode        PortMode
 	Destination Address // used by Static, Digipeater, Dynamic modes
 	OnRxFrame   FrameCallback
-	UserData    interface{}
+	UserData    any
+	QueueDepth  int // 0 means use defaultPortQueueDepth
 
 	// internal
 	mu      sync.Mutex
@@ -65,6 +67,9 @@ func (p *Port) start(queueDepth int) {
 	defer p.mu.Unlock()
 	if p.started {
 		return
+	}
+	if p.QueueDepth > 0 {
+		queueDepth = p.QueueDepth
 	}
 	p.txCh = make(chan *Frame, queueDepth)
 	p.quitCh = make(chan struct{})
@@ -120,7 +125,7 @@ func (p *Port) deliver(f *Frame) bool {
 // Router
 // ---------------------------------------------------------------------------
 
-const defaultPortQueueDepth = 8
+const defaultPortQueueDepth = 32
 
 // Router routes AX.25 frames between registered ports.
 type Router struct {
@@ -141,10 +146,8 @@ func (r *Router) RegisterPort(p *Port) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, existing := range r.ports {
-		if existing == p {
-			return ErrPortAlreadyRegistered
-		}
+	if slices.Contains(r.ports, p) {
+		return ErrPortAlreadyRegistered
 	}
 	p.start(defaultPortQueueDepth)
 	r.ports = append(r.ports, p)

@@ -52,10 +52,12 @@ type KISSTCPServerConfig struct {
 	OnError        ax25.ErrorCallback
 }
 
+const defaultKISSTCPServerTXQueueDepth = 8
+
 func (c *KISSTCPServerConfig) withDefaults() KISSTCPServerConfig {
 	out := *c
 	if out.TXQueueDepth == 0 {
-		out.TXQueueDepth = 8
+		out.TXQueueDepth = defaultKISSTCPServerTXQueueDepth
 	}
 	return out
 }
@@ -177,7 +179,7 @@ func (p *KISSTCPServerPHY) handleConn(netConn net.Conn) {
 		p.cfg.OnRxFrame(c, frame)
 	})
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, 4096)
 	for {
 		n, err := netConn.Read(buf)
 		if n > 0 {
