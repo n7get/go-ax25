@@ -133,13 +133,57 @@ func (c *Config) LoadINI(path string) error {
 			continue
 		}
 		key := strings.TrimSpace(line[:idx])
-		val := strings.TrimSpace(line[idx+1:])
+		val := parseINIValue(strings.TrimSpace(line[idx+1:]))
 		if section != "" {
 			key = section + "." + key
 		}
 		c.values[key] = val
 	}
 	return scanner.Err()
+}
+
+// parseINIValue strips an inline # comment (unless escaped with \) and
+// unwraps a double-quoted value. Inside quotes, \" is treated as a literal
+// quote character. Outside quotes, \# is treated as a literal # (backslash
+// consumed).
+func parseINIValue(raw string) string {
+	if len(raw) == 0 {
+		return raw
+	}
+	// Quoted value.
+	if raw[0] == '"' {
+		var buf strings.Builder
+		i := 1
+		for i < len(raw) {
+			ch := raw[i]
+			if ch == '\\' && i+1 < len(raw) && raw[i+1] == '"' {
+				buf.WriteByte('"')
+				i += 2
+				continue
+			}
+			if ch == '"' {
+				break // closing quote
+			}
+			buf.WriteByte(ch)
+			i++
+		}
+		return buf.String()
+	}
+	// Unquoted value: scan for unescaped #.
+	var buf strings.Builder
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if ch == '\\' && i+1 < len(raw) && raw[i+1] == '#' {
+			buf.WriteByte('#')
+			i++
+			continue
+		}
+		if ch == '#' {
+			break // inline comment
+		}
+		buf.WriteByte(ch)
+	}
+	return strings.TrimRight(buf.String(), " \t")
 }
 
 // Get returns the string value for key, or ErrConfigKeyNotFound.

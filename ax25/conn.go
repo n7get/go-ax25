@@ -348,8 +348,12 @@ func (c *Conn) handleDisconnected(f *Frame) error {
 		}
 		c.sendUA(HasPF(f.Control))
 		c.startT3()
+		return nil
 	}
 	// All other frames in disconnected state: send DM.
+	c.remoteAddr = f.Source
+	c.path = extractReturnPath(f)
+	c.sendDM(HasPF(f.Control))
 	return nil
 }
 

@@ -111,6 +111,9 @@ func (p *KISSSerialPHY) Start(ctx context.Context) error {
 }
 
 // Stop cancels the context and waits for both goroutines to exit.
+// It drains any pending transmit frames before closing the underlying
+// connection so that queued frames (e.g. a UA sent just before shutdown)
+// are not silently discarded.
 func (p *KISSSerialPHY) Stop() {
 	p.mu.Lock()
 	p.closed = true
@@ -121,6 +124,16 @@ func (p *KISSSerialPHY) Stop() {
 	if closer, ok := p.rw.(interface{ Close() error }); ok {
 		_ = closer.Close()
 	}
+	// Now drain txCh, but writes will fail fast since rw is closed.
+	for {
+		select {
+		case encoded := <-p.txCh:
+			_, _ = p.rw.Write(encoded)
+		default:
+			goto drained
+		}
+	}
+drained:
 	p.wg.Wait()
 	p.closeRxOnce.Do(func() { close(p.rxCh) })
 }
