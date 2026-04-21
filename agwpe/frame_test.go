@@ -1,172 +1,186 @@
-package agwpe_test
+package agwpe
 
 import (
 	"bytes"
 	"testing"
 
-	"github.com/n7get/go-ax25/agwpe"
 	"github.com/n7get/go-ax25/ax25"
 )
 
-func TestFrame_EncodeDecodeRoundTrip(t *testing.T) {
-	f := &agwpe.Frame{
+func TestEncodeDecodeRoundTrip(t *testing.T) {
+	f := &Frame{
 		Port:     1,
-		Kind:     agwpe.KindSendUnproto,
+		Kind:     KindSendData,
 		PID:      0xF0,
-		CallFrom: "N0CALL-1",
-		CallTo:   "APRS",
-		Data:     []byte("hello world"),
+		CallFrom: "N7GET",
+		CallTo:   "W7AW",
+		Data:     []byte("hello"),
 		User:     42,
 	}
 	enc, err := f.Encode()
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	if len(enc) != agwpe.HeaderSize+len(f.Data) {
-		t.Errorf("encoded length = %d, want %d", len(enc), agwpe.HeaderSize+len(f.Data))
-	}
-	got, err := agwpe.DecodeFrame(enc)
+	dec, err := DecodeFrame(enc)
 	if err != nil {
 		t.Fatalf("DecodeFrame: %v", err)
 	}
-	if got.Port != f.Port || got.Kind != f.Kind || got.PID != f.PID {
-		t.Errorf("header mismatch: got %+v", got)
+	if dec.Port != f.Port || dec.Kind != f.Kind || dec.PID != f.PID {
+		t.Errorf("header mismatch: got port=%d kind=%c pid=%02x", dec.Port, dec.Kind, dec.PID)
 	}
-	if got.CallFrom != f.CallFrom {
-		t.Errorf("CallFrom = %q, want %q", got.CallFrom, f.CallFrom)
+	if dec.CallFrom != f.CallFrom || dec.CallTo != f.CallTo {
+		t.Errorf("callsign mismatch: from=%q to=%q", dec.CallFrom, dec.CallTo)
 	}
-	if got.CallTo != f.CallTo {
-		t.Errorf("CallTo = %q, want %q", got.CallTo, f.CallTo)
+	if !bytes.Equal(dec.Data, f.Data) {
+		t.Errorf("data mismatch: %q vs %q", dec.Data, f.Data)
 	}
-	if !bytes.Equal(got.Data, f.Data) {
-		t.Errorf("Data mismatch")
-	}
-	if got.User != f.User {
-		t.Errorf("User = %d, want %d", got.User, f.User)
+	if dec.User != f.User {
+		t.Errorf("user mismatch: %d vs %d", dec.User, f.User)
 	}
 }
 
-func TestDecoder_MultipleFrames(t *testing.T) {
-	var received []*agwpe.Frame
-	dec := agwpe.NewDecoder(func(f *agwpe.Frame) {
+func TestDecoderStreaming(t *testing.T) {
+	var received []*Frame
+	dec := NewDecoder(func(f *Frame) {
 		received = append(received, f)
 	})
-	for _, kind := range []byte{agwpe.KindVersionReq, agwpe.KindPortInfoReq, agwpe.KindEnableMonitor} {
-		f := &agwpe.Frame{Kind: kind}
-		enc, _ := f.Encode()
-		_, _ = dec.Write(enc)
-	}
-	if len(received) != 3 {
-		t.Fatalf("got %d frames, want 3", len(received))
-	}
-}
 
-func TestDecoder_ByteByByte(t *testing.T) {
-	var received []*agwpe.Frame
-	dec := agwpe.NewDecoder(func(f *agwpe.Frame) {
-		received = append(received, f)
-	})
-	f := &agwpe.Frame{Kind: agwpe.KindSendRaw, Data: []byte{0x01, 0x02, 0x03}}
-	enc, _ := f.Encode()
-	for _, b := range enc {
+	f1 := &Frame{Kind: KindVersionReq}
+	f2 := &Frame{Kind: KindSendData, CallFrom: "N7GET", CallTo: "W7AW", Data: []byte("test")}
+
+	enc1, _ := f1.Encode()
+	enc2, _ := f2.Encode()
+	combined := append(enc1, enc2...)
+
+	// Feed one byte at a time.
+	for _, b := range combined {
 		_, _ = dec.Write([]byte{b})
 	}
-	if len(received) != 1 {
-		t.Fatalf("got %d frames, want 1", len(received))
+
+	if len(received) != 2 {
+		t.Fatalf("expected 2 frames, got %d", len(received))
 	}
-	if !bytes.Equal(received[0].Data, f.Data) {
-		t.Errorf("data mismatch")
+	if received[0].Kind != KindVersionReq {
+		t.Errorf("frame 0: expected kind 'R', got '%c'", received[0].Kind)
+	}
+	if received[1].Kind != KindSendData {
+		t.Errorf("frame 1: expected kind 'D', got '%c'", received[1].Kind)
 	}
 }
 
-func TestFromAX25Raw(t *testing.T) {
-	src, _ := ax25.ParseAddress("N0CALL-1")
-	dst, _ := ax25.ParseAddress("APRS")
-	frame := &ax25.Frame{
+func TestFromAX25RawTNCByte(t *testing.T) {
+	// Build a minimal AX.25 UI frame.
+	src, _ := ax25.ParseAddress("N7GET")
+	dst, _ := ax25.ParseAddress("BEACON")
+	axFrame := &ax25.Frame{
 		Source:      src,
 		Destination: dst,
+		Type:        ax25.FrameUI,
 		Control:     ax25.CtrlUI,
 		PID:         ax25.PIDNone,
 		Payload:     []byte("test"),
 	}
-	agf, err := agwpe.FromAX25Raw(frame, 0)
+
+	agwFrame, err := FromAX25Raw(axFrame, 2)
 	if err != nil {
 		t.Fatalf("FromAX25Raw: %v", err)
 	}
-	if agf.Kind != agwpe.KindSendRaw {
-		t.Errorf("Kind = %c, want K", agf.Kind)
-	}
-	if len(agf.Data) == 0 {
-		t.Error("Data is empty")
-	}
-}
 
-func TestFromAX25Unproto_NoDigis(t *testing.T) {
-	src, _ := ax25.ParseAddress("N0CALL-1")
-	dst, _ := ax25.ParseAddress("APRS")
-	frame := &ax25.Frame{
-		Source:      src,
-		Destination: dst,
-		Control:     ax25.CtrlUI,
-		PID:         ax25.PIDNone,
-		Payload:     []byte("beacon"),
+	// First byte should be the TNC indicator (always 0 per AGWPE/Direwolf convention).
+	if agwFrame.Data[0] != 0x00 {
+		t.Errorf("TNC byte: expected 0x00, got 0x%02X", agwFrame.Data[0])
 	}
-	agf, err := agwpe.FromAX25Unproto(frame, 0)
+
+	// Round-trip through ToAX25.
+	// Simulate received raw by setting kind to 'K'.
+	agwFrame.Kind = KindRecvRaw
+	parsed, err := ToAX25(agwFrame)
 	if err != nil {
-		t.Fatalf("FromAX25Unproto: %v", err)
+		t.Fatalf("ToAX25: %v", err)
 	}
-	if agf.Kind != agwpe.KindSendUnproto {
-		t.Errorf("Kind = %c, want M", agf.Kind)
+	if parsed.Source.Callsign != "N7GET" {
+		t.Errorf("source: expected N7GET, got %s", parsed.Source.Callsign)
 	}
-}
-
-func TestBuilders(t *testing.T) {
-	tests := []struct {
-		name string
-		f    *agwpe.Frame
-		kind byte
-	}{
-		{"VersionReq", agwpe.BuildVersionReq(), agwpe.KindVersionReq},
-		{"PortInfoReq", agwpe.BuildPortInfoReq(), agwpe.KindPortInfoReq},
-		{"PortCapReq", agwpe.BuildPortCapReq(1), agwpe.KindPortCapReq},
-		{"EnableMonitor", agwpe.BuildEnableMonitor(), agwpe.KindEnableMonitor},
-		{"EnableRaw", agwpe.BuildEnableRaw(), agwpe.KindEnableRaw},
-		{"RegisterCall", agwpe.BuildRegisterCall(0, "N0CALL"), agwpe.KindRegisterCall},
-		{"ConnectReq", agwpe.BuildConnectReq(0, "SRC", "DST"), agwpe.KindConnectReq},
-		{"DisconnectReq", agwpe.BuildDisconnectReq(0, "SRC", "DST"), agwpe.KindDisconnectReq},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.f.Kind != tt.kind {
-				t.Errorf("Kind = %c, want %c", tt.f.Kind, tt.kind)
-			}
-			_, err := tt.f.Encode()
-			if err != nil {
-				t.Errorf("Encode: %v", err)
-			}
-		})
+	if !bytes.Equal(parsed.Payload, []byte("test")) {
+		t.Errorf("payload mismatch: %q", parsed.Payload)
 	}
 }
 
-func TestParseVersionResp(t *testing.T) {
-	f := &agwpe.Frame{
-		Kind: agwpe.KindVersionResp,
-		Data: []byte{0xD5, 0x07, 0x00, 0x00},
-	}
-	major, minor, err := agwpe.ParseVersionResp(f)
+func TestParseVersionResp8Bytes(t *testing.T) {
+	f := BuildVersionResp(2005, 127)
+	major, minor, err := ParseVersionResp(&f)
 	if err != nil {
 		t.Fatalf("ParseVersionResp: %v", err)
 	}
-	if major != 2005 || minor != 0 {
-		t.Errorf("version = %d.%d, want 2005.0", major, minor)
+	if major != 2005 || minor != 127 {
+		t.Errorf("expected 2005.127, got %d.%d", major, minor)
 	}
 }
 
-func TestKindString(t *testing.T) {
-	if s := agwpe.KindString('R'); s != "Version" {
-		t.Errorf("KindString(R) = %q, want Version", s)
+func TestKindStringCoverage(t *testing.T) {
+	cases := []struct {
+		kind byte
+		want string
+	}{
+		{'P', "Login"},
+		{'R', "Version"},
+		{'G', "PortInfo"},
+		{'g', "PortCap"},
+		{'X', "RegisterCall"},
+		{'x', "UnregisterCall"},
+		{'H', "HeardReq"},
+		{'C', "Connect"},
+		{'v', "ConnectVia"},
+		{'c', "ConnectPID"},
+		{'D', "Data"},
+		{'d', "Disconnect"},
+		{'M', "SendUnproto"},
+		{'V', "SendUnprotoVia"},
+		{'U', "RecvUnproto"},
+		{'S', "RecvSupervisory"},
+		{'I', "RecvIFrame"},
+		{'T', "RecvOwn"},
+		{'K', "Raw"},
+		{'k', "ToggleRaw"},
+		{'m', "ToggleMonitor"},
+		{'Y', "OutstandingConn"},
+		{'y', "OutstandingPort"},
 	}
-	if s := agwpe.KindString(0xFF); s == "" {
-		t.Error("KindString(unknown) returned empty string")
+	for _, tc := range cases {
+		got := KindString(tc.kind)
+		if got != tc.want {
+			t.Errorf("KindString(%c): got %q, want %q", tc.kind, got, tc.want)
+		}
+	}
+}
+
+func TestBuildLogin(t *testing.T) {
+	f := BuildLogin("user", "pass")
+	if f.Kind != KindLogin {
+		t.Errorf("kind: expected 'P', got '%c'", f.Kind)
+	}
+	if len(f.Data) != LoginDataLen {
+		t.Errorf("data len: expected %d, got %d", LoginDataLen, len(f.Data))
+	}
+	if string(f.Data[0:4]) != "user" {
+		t.Errorf("username: expected 'user', got %q", f.Data[0:4])
+	}
+	if string(f.Data[255:259]) != "pass" {
+		t.Errorf("password: expected 'pass', got %q", f.Data[255:259])
+	}
+}
+
+func TestIsMonitored(t *testing.T) {
+	monitored := []byte{KindRecvUnproto, KindRecvSupervisory, KindRecvIFrame, KindRecvOwn}
+	for _, k := range monitored {
+		if !IsMonitored(k) {
+			t.Errorf("IsMonitored(%c) should be true", k)
+		}
+	}
+	notMonitored := []byte{KindSendData, KindConnectReq, KindDisconnectReq}
+	for _, k := range notMonitored {
+		if IsMonitored(k) {
+			t.Errorf("IsMonitored(%c) should be false", k)
+		}
 	}
 }

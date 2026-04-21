@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/n7get/go-ax25/ax25"
 )
@@ -29,11 +28,13 @@ const (
 	KindPortInfoResp    byte = 'G'
 	KindPortCapReq      byte = 'g'
 	KindPortCapResp     byte = 'g'
+	KindLogin           byte = 'P'
 	KindRegisterCall    byte = 'X'
 	KindUnregisterCall  byte = 'x'
 	KindHeardReq        byte = 'H'
 	KindConnectReq      byte = 'C'
 	KindConnectViaReq   byte = 'v'
+	KindConnectPID      byte = 'c'
 	KindConnectResp     byte = 'C'
 	KindSendData        byte = 'D'
 	KindRecvData        byte = 'D'
@@ -44,13 +45,21 @@ const (
 	KindRecvUnproto     byte = 'U'
 	KindRecvSupervisory byte = 'S'
 	KindRecvIFrame      byte = 'I'
-	KindRecvRaw         byte = 'T'
+	KindRecvOwn         byte = 'T'
+	KindRecvRaw         byte = 'K'
 	KindSendRaw         byte = 'K'
-	KindEnableRaw       byte = 'k'
-	KindEnableMonitor   byte = 'm'
+	KindToggleRaw       byte = 'k'
+	KindToggleMonitor   byte = 'm'
 	KindOutstandingReq  byte = 'Y'
 	KindOutstandingResp byte = 'y'
+
+	// Deprecated aliases for backward compatibility.
+	KindEnableRaw     = KindToggleRaw
+	KindEnableMonitor = KindToggleMonitor
 )
+
+// LoginDataLen is the fixed size of a 'P' login frame payload (255 + 255).
+const LoginDataLen = 510
 
 // Frame is a complete AGWPE message (header + data).
 type Frame struct {
@@ -151,7 +160,9 @@ func (d *Decoder) Write(p []byte) (int, error) {
 			if d.hdrN == HeaderSize {
 				d.dataLen = binary.LittleEndian.Uint32(d.header[28:32])
 				if d.dataLen > MaxDataLen {
-					d.dataLen = MaxDataLen
+					// Frame too large — skip it and reset.
+					d.Reset()
+					return len(p), fmt.Errorf("agwpe: decoder: data_len %d exceeds maximum %d", d.dataLen, MaxDataLen)
 				}
 				if d.dataLen > 0 {
 					d.data = make([]byte, d.dataLen)
@@ -193,7 +204,9 @@ func (d *Decoder) deliver() {
 
 // ─── AX.25 <-> AGWPE conversion ───────────────────────────────────────────────
 
-// FromAX25Raw wraps an AX.25 frame in an AGWPE 'K' (send raw) frame.
+// FromAX25Raw wraps an AX.25 frame in an AGWPE 'K' (raw) frame.
+// Direwolf prepends a 1-byte TNC indicator (always 0) before the raw AX.25
+// data in 'K' frames. This function follows that convention.
 func FromAX25Raw(frame *ax25.Frame, port uint8) (*Frame, error) {
 	if frame == nil {
 		return nil, fmt.Errorf("agwpe: FromAX25Raw: nil frame")
@@ -202,7 +215,11 @@ func FromAX25Raw(frame *ax25.Frame, port uint8) (*Frame, error) {
 	if err != nil {
 		return nil, fmt.Errorf("agwpe: FromAX25Raw: encode: %w", err)
 	}
-	if len(raw) > MaxDataLen {
+	// Prepend TNC indicator byte (0) per AGWPE/Direwolf convention.
+	data := make([]byte, 1+len(raw))
+	data[0] = 0
+	copy(data[1:], raw)
+	if len(data) > MaxDataLen {
 		return nil, fmt.Errorf("agwpe: FromAX25Raw: frame too large")
 	}
 	return &Frame{
@@ -210,7 +227,7 @@ func FromAX25Raw(frame *ax25.Frame, port uint8) (*Frame, error) {
 		Kind:     KindSendRaw,
 		CallFrom: frame.Source.String(),
 		CallTo:   frame.Destination.String(),
-		Data:     raw,
+		Data:     data,
 	}, nil
 }
 
@@ -223,12 +240,15 @@ func FromAX25Unproto(frame *ax25.Frame, port uint8) (*Frame, error) {
 	payload := frame.Payload
 	if len(frame.Digipeaters) > 0 {
 		kind = KindSendUnprotoVia
-		parts := make([]string, len(frame.Digipeaters))
+		ndigi := len(frame.Digipeaters)
+		// Binary layout: [1 byte count][N * 10-byte null-padded callsigns][info]
+		buf := make([]byte, 1+ndigi*CallsignLen+len(frame.Payload))
+		buf[0] = byte(ndigi)
 		for i, d := range frame.Digipeaters {
-			parts[i] = d.String()
+			setCallsign(buf[1+i*CallsignLen:1+(i+1)*CallsignLen], d.String())
 		}
-		prefix := []byte(strings.Join(parts, " ") + "\r")
-		payload = append(prefix, frame.Payload...)
+		copy(buf[1+ndigi*CallsignLen:], frame.Payload)
+		payload = buf
 	}
 	if len(payload) > MaxDataLen {
 		return nil, fmt.Errorf("agwpe: FromAX25Unproto: payload too large")
@@ -243,15 +263,21 @@ func FromAX25Unproto(frame *ax25.Frame, port uint8) (*Frame, error) {
 	}, nil
 }
 
-// ToAX25 converts an AGWPE 'T' (received raw) frame to an AX.25 frame.
+// ToAX25 converts an AGWPE 'K' (raw) frame to an AX.25 frame.
+// Direwolf prepends a 1-byte TNC indicator before the raw AX.25 data;
+// this function strips that byte before parsing.
 func ToAX25(f *Frame) (*ax25.Frame, error) {
 	if f == nil {
 		return nil, fmt.Errorf("agwpe: ToAX25: nil frame")
 	}
 	if f.Kind != KindRecvRaw {
-		return nil, fmt.Errorf("agwpe: ToAX25: expected kind 'T', got '%c'", f.Kind)
+		return nil, fmt.Errorf("agwpe: ToAX25: expected kind 'K', got '%c'", f.Kind)
 	}
-	return ax25.ParseFrame(f.Data)
+	if len(f.Data) < 2 {
+		return nil, fmt.Errorf("agwpe: ToAX25: data too short")
+	}
+	// Skip the leading TNC indicator byte.
+	return ax25.ParseFrame(f.Data[1:])
 }
 
 // ─── Builder helpers ──────────────────────────────────────────────────────────
@@ -259,8 +285,19 @@ func ToAX25(f *Frame) (*ax25.Frame, error) {
 func BuildVersionReq() *Frame           { return &Frame{Kind: KindVersionReq} }
 func BuildPortInfoReq() *Frame          { return &Frame{Kind: KindPortInfoReq} }
 func BuildPortCapReq(port uint8) *Frame { return &Frame{Port: port, Kind: KindPortCapReq} }
-func BuildEnableMonitor() *Frame        { return &Frame{Kind: KindEnableMonitor} }
-func BuildEnableRaw() *Frame            { return &Frame{Kind: KindEnableRaw} }
+
+// BuildToggleMonitor builds a frame that toggles monitor mode on/off.
+func BuildToggleMonitor() *Frame { return &Frame{Kind: KindToggleMonitor} }
+
+// BuildToggleRaw builds a frame that toggles raw frame reception on/off.
+func BuildToggleRaw() *Frame { return &Frame{Kind: KindToggleRaw} }
+
+// BuildEnableMonitor is a deprecated alias for BuildToggleMonitor.
+func BuildEnableMonitor() *Frame { return BuildToggleMonitor() }
+
+// BuildEnableRaw is a deprecated alias for BuildToggleRaw.
+func BuildEnableRaw() *Frame { return BuildToggleRaw() }
+
 func BuildRegisterCall(port uint8, callsign string) *Frame {
 	return &Frame{Port: port, Kind: KindRegisterCall, CallFrom: callsign}
 }
@@ -270,6 +307,17 @@ func BuildUnregisterCall(port uint8, callsign string) *Frame {
 func BuildConnectReq(port uint8, from, to string) *Frame {
 	return &Frame{Port: port, Kind: KindConnectReq, CallFrom: from, CallTo: to}
 }
+func BuildConnectViaReq(port uint8, from, to string, digis []string) *Frame {
+	// Data contains null-separated digi path.
+	var data []byte
+	for i, d := range digis {
+		if i > 0 {
+			data = append(data, 0)
+		}
+		data = append(data, []byte(d)...)
+	}
+	return &Frame{Port: port, Kind: KindConnectViaReq, CallFrom: from, CallTo: to, Data: data}
+}
 func BuildDisconnectReq(port uint8, from, to string) *Frame {
 	return &Frame{Port: port, Kind: KindDisconnectReq, CallFrom: from, CallTo: to}
 }
@@ -278,18 +326,28 @@ func BuildSendData(port uint8, from, to string, pid uint8, data []byte) *Frame {
 }
 func BuildHeardReq(port uint8) *Frame { return &Frame{Port: port, Kind: KindHeardReq} }
 
+// BuildLogin builds a 'P' login frame with 255-byte username + 255-byte
+// password, null-padded, per the AGWPE spec.
+func BuildLogin(username, password string) *Frame {
+	data := make([]byte, LoginDataLen)
+	copy(data[0:255], username)
+	copy(data[255:510], password)
+	return &Frame{Kind: KindLogin, Data: data}
+}
+
 // ─── Response parsing ─────────────────────────────────────────────────────────
 
 // ParseVersionResp extracts major/minor version from an 'R' response frame.
-func ParseVersionResp(f *Frame) (major, minor uint16, err error) {
+// Direwolf sends two uint32 (8 bytes total) in little-endian order.
+func ParseVersionResp(f *Frame) (major, minor uint32, err error) {
 	if f == nil || f.Kind != KindVersionResp {
 		return 0, 0, fmt.Errorf("agwpe: ParseVersionResp: wrong kind")
 	}
-	if len(f.Data) < 4 {
-		return 0, 0, fmt.Errorf("agwpe: ParseVersionResp: data too short")
+	if len(f.Data) < 8 {
+		return 0, 0, fmt.Errorf("agwpe: ParseVersionResp: data too short (%d bytes, need 8)", len(f.Data))
 	}
-	return binary.LittleEndian.Uint16(f.Data[0:2]),
-		binary.LittleEndian.Uint16(f.Data[2:4]), nil
+	return binary.LittleEndian.Uint32(f.Data[0:4]),
+		binary.LittleEndian.Uint32(f.Data[4:8]), nil
 }
 
 // ParseOutstandingResp extracts the outstanding-frames count from a 'y' frame.
@@ -314,6 +372,8 @@ func KindString(kind byte) string {
 		return "PortInfo"
 	case 'g':
 		return "PortCap"
+	case 'P':
+		return "Login"
 	case 'X':
 		return "RegisterCall"
 	case 'x':
@@ -321,11 +381,11 @@ func KindString(kind byte) string {
 	case 'H':
 		return "HeardReq"
 	case 'C':
-		return "ConnectReq"
+		return "Connect"
 	case 'v':
-		return "ConnectViaReq"
+		return "ConnectVia"
 	case 'c':
-		return "ConnectResp"
+		return "ConnectPID"
 	case 'D':
 		return "Data"
 	case 'd':
@@ -341,17 +401,17 @@ func KindString(kind byte) string {
 	case 'I':
 		return "RecvIFrame"
 	case 'T':
-		return "RecvRaw"
+		return "RecvOwn"
 	case 'K':
-		return "SendRaw"
+		return "Raw"
 	case 'k':
-		return "EnableRaw"
+		return "ToggleRaw"
 	case 'm':
-		return "EnableMonitor"
+		return "ToggleMonitor"
 	case 'Y':
-		return "OutstandingReq"
+		return "OutstandingConn"
 	case 'y':
-		return "OutstandingResp"
+		return "OutstandingPort"
 	default:
 		return fmt.Sprintf("Unknown(0x%02X)", kind)
 	}
@@ -360,7 +420,7 @@ func KindString(kind byte) string {
 // IsMonitored returns true for frame kinds that carry monitored (received) data.
 func IsMonitored(kind byte) bool {
 	switch kind {
-	case KindRecvUnproto, KindRecvSupervisory, KindRecvIFrame, KindRecvRaw:
+	case KindRecvUnproto, KindRecvSupervisory, KindRecvIFrame, KindRecvOwn:
 		return true
 	}
 	return false

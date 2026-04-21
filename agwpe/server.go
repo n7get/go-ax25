@@ -3,10 +3,10 @@
 package agwpe
 
 import (
-	"bytes"
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -15,7 +15,8 @@ import (
 
 // ServerConfig configures an AGWPE server instance.
 type ServerConfig struct {
-	Port            int
+	Port            int // TCP listen port
+	RadioPort       int // AGWPE radio port index (0-based); almost always 0
 	PortDescription string
 	TXQueueDepth    int
 	MaxConns        int
@@ -38,7 +39,7 @@ func (c *ServerConfig) portDesc() string {
 	if c.PortDescription != "" {
 		return c.PortDescription
 	}
-	return fmt.Sprintf("Port%d go-ax25 radio", c.Port+1)
+	return fmt.Sprintf("Port%d go-ax25 radio", c.RadioPort+1)
 }
 
 type connSlot struct {
@@ -46,6 +47,16 @@ type connSlot struct {
 	inUse      bool
 	localCall  string
 	remoteCall string
+	conn       *ax25.Conn
+	routerPort *ax25.Port
+}
+
+// listenerEntry holds a passive listener Conn for a registered AGWPE callsign.
+// It stays registered with the router and accepts sequential incoming connections.
+type listenerEntry struct {
+	mu         sync.Mutex
+	call       string
+	remoteCall string // set to remote callsign while a session is active
 	conn       *ax25.Conn
 	routerPort *ax25.Port
 }
@@ -67,6 +78,9 @@ type Server struct {
 
 	callsMu sync.Mutex
 	calls   []string
+
+	listenersMu sync.Mutex
+	listeners   map[string]*listenerEntry
 
 	pendingFrames []atomic.Int64
 
@@ -91,6 +105,7 @@ func NewServer(cfg ServerConfig, router *ax25.Router) *Server {
 		router:        router,
 		txCh:          make(chan Frame, cfg.TXQueueDepth),
 		slots:         make([]*connSlot, n),
+		listeners:     make(map[string]*listenerEntry),
 		pendingFrames: make([]atomic.Int64, n),
 	}
 	for i := range s.slots {
@@ -132,6 +147,11 @@ func (s *Server) HandleConn(c net.Conn) {
 	s.txCh = make(chan Frame, s.cfg.TXQueueDepth)
 
 	s.disconnectAllSlots()
+	s.teardownAllListeners()
+
+	// Reset toggle states for next connection.
+	s.rawEnabled.Store(false)
+	s.monitorEnabled.Store(false)
 
 	s.netConnMu.Lock()
 	s.netConn = nil
@@ -195,7 +215,8 @@ func (s *Server) handleClientFrame(f *Frame) {
 	}
 	slog.Debug("agwpe rx", "kind", string(f.Kind), "from", f.CallFrom, "to", f.CallTo, "data_len", len(f.Data))
 	switch f.Kind {
-	case 'P':
+	case KindLogin:
+		// 'P' login — silently accept (no response per spec).
 	case 'R':
 		s.handleVersionReq()
 	case 'G':
@@ -203,6 +224,7 @@ func (s *Server) handleClientFrame(f *Frame) {
 	case 'g':
 		s.handlePortCapReq()
 	case 'H':
+		// Heard request — not yet implemented.
 	case 'X':
 		s.handleRegisterCall(f)
 	case 'x':
@@ -241,11 +263,11 @@ func (s *Server) handleVersionReq() {
 }
 
 func (s *Server) handlePortInfoReq() {
-	s.enqueue(BuildPortInfoResp(s.cfg.Port, 1, s.cfg.portDesc()))
+	s.enqueue(BuildPortInfoResp(s.cfg.RadioPort, 1, s.cfg.portDesc()))
 }
 
 func (s *Server) handlePortCapReq() {
-	s.enqueue(BuildPortCapResp(s.cfg.Port))
+	s.enqueue(BuildPortCapResp(s.cfg.RadioPort))
 }
 
 func (s *Server) handleRegisterCall(f *Frame) {
@@ -262,7 +284,10 @@ func (s *Server) handleRegisterCall(f *Frame) {
 		s.calls = append(s.calls, call)
 	}
 	s.callsMu.Unlock()
-	s.enqueue(BuildRegisterCallResp(call, true))
+	if !found {
+		s.setupListener(call)
+	}
+	s.enqueue(BuildRegisterCallResp(call, true, uint8(s.cfg.RadioPort)))
 }
 
 func (s *Server) handleUnregisterCall(f *Frame) {
@@ -275,15 +300,130 @@ func (s *Server) handleUnregisterCall(f *Frame) {
 		}
 	}
 	s.callsMu.Unlock()
+	s.teardownListener(call)
+}
+
+// setupListener creates a passive ax25.Conn for the registered callsign and
+// registers a static router port so that incoming SABMs are delivered to it.
+func (s *Server) setupListener(callsign string) {
+	addr, err := ax25.ParseAddress(callsign)
+	if err != nil {
+		slog.Warn("agwpe server: invalid callsign for listener", "callsign", callsign, "err", err)
+		return
+	}
+
+	entry := &listenerEntry{call: callsign}
+
+	conn, err := ax25.NewConn(addr, ax25.ConnCallbacks{
+		OnConnect: func(remote ax25.Address, localInitiated bool) {
+			entry.mu.Lock()
+			entry.remoteCall = remote.String()
+			entry.mu.Unlock()
+			s.enqueue(BuildConnectedResp(s.cfg.RadioPort, callsign, remote.String(), false))
+		},
+		OnDisconnect: func() {
+			entry.mu.Lock()
+			remoteCall := entry.remoteCall
+			entry.remoteCall = ""
+			entry.mu.Unlock()
+			s.enqueue(BuildDisconnectedResp(s.cfg.RadioPort, callsign, remoteCall))
+			// Don't unregister the port: keep the Conn in Disconnected state
+			// so it can accept the next incoming SABM.
+		},
+		OnData: func(data []byte) {
+			entry.mu.Lock()
+			remoteCall := entry.remoteCall
+			entry.mu.Unlock()
+			s.enqueue(BuildConnectedData(s.cfg.RadioPort, callsign, remoteCall, data))
+		},
+		OnError: func(err *ax25.ConnError) {
+			slog.Warn("agwpe server: listener conn error", "callsign", callsign, "err", err)
+		},
+		OnTxFrame: func(frame *ax25.Frame) {
+			if s.monitorEnabled.Load() {
+				s.sendOwnFrameToClient(frame)
+			}
+			if err := s.router.Send(frame, &s.routerPort); err != nil {
+				slog.Warn("agwpe server: listener router send failed", "callsign", callsign, "err", err)
+			}
+		},
+	}, nil)
+	if err != nil {
+		slog.Warn("agwpe server: NewConn failed for listener", "callsign", callsign, "err", err)
+		return
+	}
+
+	entry.conn = conn
+	entry.routerPort = &ax25.Port{
+		Mode:        ax25.PortModeStatic,
+		Destination: addr,
+		OnRxFrame: func(f *ax25.Frame) {
+			if err := conn.OnFrame(f); err != nil {
+				slog.Warn("agwpe server: listener conn.OnFrame error", "callsign", callsign, "err", err)
+			}
+		},
+	}
+
+	if err := s.router.RegisterPort(entry.routerPort); err != nil {
+		slog.Warn("agwpe server: register listener port failed", "callsign", callsign, "err", err)
+		return
+	}
+
+	s.listenersMu.Lock()
+	s.listeners[callsign] = entry
+	s.listenersMu.Unlock()
+}
+
+// teardownListener unregisters and closes the passive listener for callsign.
+func (s *Server) teardownListener(callsign string) {
+	s.listenersMu.Lock()
+	entry := s.listeners[callsign]
+	delete(s.listeners, callsign)
+	s.listenersMu.Unlock()
+
+	if entry == nil {
+		return
+	}
+	if entry.routerPort != nil {
+		_ = s.router.UnregisterPort(entry.routerPort)
+	}
+	if entry.conn != nil {
+		entry.conn.Close()
+	}
+}
+
+// teardownAllListeners closes all passive listener Conns and unregisters their
+// router ports. Called when the AGWPE TCP client disconnects.
+func (s *Server) teardownAllListeners() {
+	s.listenersMu.Lock()
+	entries := make([]*listenerEntry, 0, len(s.listeners))
+	for _, e := range s.listeners {
+		entries = append(entries, e)
+	}
+	s.listeners = make(map[string]*listenerEntry)
+	s.listenersMu.Unlock()
+
+	s.callsMu.Lock()
+	s.calls = nil
+	s.callsMu.Unlock()
+
+	for _, entry := range entries {
+		if entry.routerPort != nil {
+			_ = s.router.UnregisterPort(entry.routerPort)
+		}
+		if entry.conn != nil {
+			entry.conn.Close()
+		}
+	}
 }
 
 func (s *Server) handleSendRaw(f *Frame) {
-	frame, err := ToAX25(f)
+	axFrame, err := ToAX25(f)
 	if err != nil {
 		slog.Warn("agwpe server: bad raw frame", "err", err)
 		return
 	}
-	if err := s.router.Send(frame, &s.routerPort); err != nil {
+	if err := s.router.Send(axFrame, &s.routerPort); err != nil {
 		slog.Warn("agwpe server: router send failed", "err", err)
 	}
 }
@@ -329,10 +469,10 @@ func (s *Server) handleConnect(f *Frame, digis []ax25.Address) {
 
 	conn, err := ax25.NewConn(localAddr, ax25.ConnCallbacks{
 		OnConnect: func(remote ax25.Address, localInitiated bool) {
-			s.enqueue(BuildConnectedResp(s.cfg.Port, localCall, remoteCall, localInitiated))
+			s.enqueue(BuildConnectedResp(s.cfg.RadioPort, localCall, remoteCall, localInitiated))
 		},
 		OnDisconnect: func() {
-			s.enqueue(BuildDisconnectedResp(s.cfg.Port, localCall, remoteCall))
+			s.enqueue(BuildDisconnectedResp(s.cfg.RadioPort, localCall, remoteCall))
 			slot.mu.Lock()
 			cp := slot.routerPort
 			slot.routerPort = nil
@@ -343,7 +483,7 @@ func (s *Server) handleConnect(f *Frame, digis []ax25.Address) {
 			s.freeSlot(slot)
 		},
 		OnData: func(data []byte) {
-			s.enqueue(BuildConnectedData(s.cfg.Port, localCall, remoteCall, data))
+			s.enqueue(BuildConnectedData(s.cfg.RadioPort, localCall, remoteCall, data))
 			if slotIdx >= 0 {
 				s.pendingFrames[slotIdx].Add(-1)
 			}
@@ -352,6 +492,9 @@ func (s *Server) handleConnect(f *Frame, digis []ax25.Address) {
 			slog.Warn("agwpe server: conn error", "err", err)
 		},
 		OnTxFrame: func(frame *ax25.Frame) {
+			if s.monitorEnabled.Load() {
+				s.sendOwnFrameToClient(frame)
+			}
 			if err := s.router.Send(frame, &s.routerPort); err != nil {
 				slog.Warn("agwpe server: router send failed", "err", err)
 			}
@@ -404,43 +547,68 @@ func (s *Server) handleConnectPID(f *Frame) {
 func (s *Server) handleSendData(f *Frame) {
 	localCall := f.CallFrom
 	remoteCall := f.CallTo
+
+	// Check active slot first: an outgoing connection takes priority over a
+	// passive listener registered under the same callsign.
 	slot := s.findSlot(localCall, remoteCall)
-	if slot == nil {
-		slog.Warn("agwpe server: send data: no matching slot", "local", localCall, "remote", remoteCall)
+	if slot != nil {
+		slot.mu.Lock()
+		conn := slot.conn
+		slot.mu.Unlock()
+		if conn != nil {
+			if err := conn.SendData(f.Data); err != nil {
+				slog.Warn("agwpe server: conn send failed", "err", err)
+			}
+			idx := s.slotIndex(slot)
+			if idx >= 0 {
+				s.pendingFrames[idx].Add(1)
+			}
+		}
 		return
 	}
-	slot.mu.Lock()
-	conn := slot.conn
-	slot.mu.Unlock()
-	if conn == nil {
+
+	// Fall back to passive listener (for callsigns that only accept incoming).
+	s.listenersMu.Lock()
+	listenerEntry := s.listeners[localCall]
+	s.listenersMu.Unlock()
+	if listenerEntry != nil {
+		if err := listenerEntry.conn.SendData(f.Data); err != nil {
+			slog.Warn("agwpe server: listener send failed", "local", localCall, "err", err)
+		}
 		return
 	}
-	if err := conn.SendData(f.Data); err != nil {
-		slog.Warn("agwpe server: conn send failed", "err", err)
-	}
-	idx := s.slotIndex(slot)
-	if idx >= 0 {
-		s.pendingFrames[idx].Add(1)
-	}
+
+	slog.Warn("agwpe server: send data: no matching slot", "local", localCall, "remote", remoteCall)
 }
 
 func (s *Server) handleDisconnect(f *Frame) {
 	localCall := f.CallFrom
 	remoteCall := f.CallTo
+
+	// Check active slot first: an outgoing connection takes priority over a
+	// passive listener registered under the same callsign.
 	slot := s.findSlot(localCall, remoteCall)
-	if slot == nil {
+	if slot != nil {
+		slot.mu.Lock()
+		conn := slot.conn
+		slot.mu.Unlock()
+		if conn != nil {
+			_ = conn.Shutdown()
+		}
 		return
 	}
-	slot.mu.Lock()
-	conn := slot.conn
-	slot.mu.Unlock()
-	if conn != nil {
-		_ = conn.Shutdown()
+
+	// Fall back to passive listener.
+	s.listenersMu.Lock()
+	listenerEntry := s.listeners[localCall]
+	s.listenersMu.Unlock()
+	if listenerEntry != nil {
+		_ = listenerEntry.conn.Shutdown()
 	}
 }
 
 func (s *Server) handleOutstandingPort() {
-	s.enqueue(BuildOutstandingPort(s.cfg.Port, 0))
+	s.enqueue(BuildOutstandingPort(s.cfg.RadioPort, 0))
 }
 
 func (s *Server) handleOutstandingConn(f *Frame) {
@@ -458,31 +626,35 @@ func (s *Server) handleOutstandingConn(f *Frame) {
 		slot.mu.Unlock()
 	}
 	s.mu.Unlock()
-	s.enqueue(BuildOutstandingConn(s.cfg.Port, localCall, remoteCall, int(pending)))
+	s.enqueue(BuildOutstandingConn(s.cfg.RadioPort, localCall, remoteCall, int(pending)))
 }
 
 func (s *Server) sendRawToClient(f *ax25.Frame) {
-	agwpeFrame, err := FromAX25Raw(f, uint8(s.cfg.Port))
+	agwpeFrame, err := FromAX25Raw(f, uint8(s.cfg.RadioPort))
 	if err != nil {
 		return
 	}
+	// Change kind to 'K' for received raw (same byte, but semantically
+	// this is the server sending a received raw frame to the client).
 	s.enqueue(*agwpeFrame)
 }
 
 func (s *Server) sendMonitorToClient(f *ax25.Frame) {
-	var kind byte
-	switch f.Type {
-	case ax25.FrameUI:
-		kind = 'U'
-	case ax25.FrameI:
-		kind = 'I'
-	default:
-		kind = 'S'
-	}
-	agwpeFrame, err := FromAX25Monitor(f, kind)
+	agwpeFrame, err := FromAX25Monitor(f, s.cfg.RadioPort)
 	if err != nil {
 		return
 	}
+	s.enqueue(agwpeFrame)
+}
+
+// sendOwnFrameToClient enqueues a monitor frame for a frame we transmitted,
+// using kind 'T' (KindRecvOwn) per the AGWPE spec.
+func (s *Server) sendOwnFrameToClient(f *ax25.Frame) {
+	agwpeFrame, err := FromAX25Monitor(f, s.cfg.RadioPort)
+	if err != nil {
+		return
+	}
+	agwpeFrame.Kind = KindRecvOwn
 	s.enqueue(agwpeFrame)
 }
 
@@ -569,16 +741,20 @@ func toAX25Unproto(f *Frame) (*ax25.Frame, error) {
 	payload := append([]byte(nil), f.Data...)
 	var digis []ax25.Address
 	if f.Kind == KindSendUnprotoVia {
-		parts := bytes.SplitN(payload, []byte{'\r'}, 2)
-		if len(parts) == 2 {
-			for _, digi := range bytes.Fields(parts[0]) {
-				addr, err := ax25.ParseAddress(string(digi))
-				if err != nil {
-					return nil, fmt.Errorf("agwpe server: parse digi: %w", err)
+		// Binary layout from client: [1 byte ndigi][ndigi * 10-byte callsigns][info]
+		if len(payload) >= 1 {
+			ndigi := int(payload[0])
+			if len(payload) >= 1+ndigi*CallsignLen {
+				for i := 0; i < ndigi; i++ {
+					call := getCallsign(payload[1+i*CallsignLen : 1+(i+1)*CallsignLen])
+					addr, err := ax25.ParseAddress(call)
+					if err != nil {
+						return nil, fmt.Errorf("agwpe server: parse digi: %w", err)
+					}
+					digis = append(digis, addr)
 				}
-				digis = append(digis, addr)
+				payload = payload[1+ndigi*CallsignLen:]
 			}
-			payload = parts[1]
 		}
 	}
 	pid := f.PID
@@ -596,21 +772,22 @@ func toAX25Unproto(f *Frame) (*ax25.Frame, error) {
 	}, nil
 }
 
+// parseDigiPath parses the data field of a 'v' (Connect VIA) frame.
+// Direwolf format: [1 byte ndigi][ndigi * 10-byte null-padded callsigns]
 func parseDigiPath(data []byte) []ax25.Address {
-	if len(data) == 0 {
+	if len(data) < 1 {
 		return nil
 	}
-	var digis []ax25.Address
-	start := 0
-	for i := 0; i <= len(data); i++ {
-		if i == len(data) || data[i] == 0 {
-			if i > start {
-				addr, err := ax25.ParseAddress(string(data[start:i]))
-				if err == nil {
-					digis = append(digis, addr)
-				}
-			}
-			start = i + 1
+	ndigi := int(data[0])
+	if ndigi == 0 || len(data) < 1+ndigi*CallsignLen {
+		return nil
+	}
+	digis := make([]ax25.Address, 0, ndigi)
+	for i := 0; i < ndigi; i++ {
+		call := strings.TrimRight(string(data[1+i*CallsignLen:1+(i+1)*CallsignLen]), "\x00")
+		addr, err := ax25.ParseAddress(call)
+		if err == nil {
+			digis = append(digis, addr)
 		}
 	}
 	return digis

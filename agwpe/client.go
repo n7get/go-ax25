@@ -27,8 +27,8 @@ func NewClientConfigFromConfig(cfg *ax25.Config) ClientConfig {
 	return ClientConfig{
 		Host:           cfg.GetStr("agwpe.client.host", "localhost"),
 		Port:           uint16(cfg.GetInt("agwpe.client.port", 8000)),
-		ConnectTimeout: 6 * time.Second, // Could be made configurable
-		ReconnectDelay: 5 * time.Second, // Could be made configurable
+		ConnectTimeout: 6 * time.Second,
+		ReconnectDelay: 5 * time.Second,
 		TXQueueDepth:   cfg.GetInt("agwpe.client.tx_queue_depth", 8),
 		ReadBufSize:    cfg.GetInt("agwpe.client.read_buf", 4132),
 	}
@@ -124,8 +124,23 @@ func (c *Client) SendFrame(f *Frame) error {
 func (c *Client) RequestVersion() error           { return c.SendFrame(BuildVersionReq()) }
 func (c *Client) RequestPortInfo() error          { return c.SendFrame(BuildPortInfoReq()) }
 func (c *Client) RequestPortCap(port uint8) error { return c.SendFrame(BuildPortCapReq(port)) }
-func (c *Client) EnableMonitor() error            { return c.SendFrame(BuildEnableMonitor()) }
-func (c *Client) EnableRaw() error                { return c.SendFrame(BuildEnableRaw()) }
+
+// ToggleMonitor sends a toggle-monitor ('m') frame.
+func (c *Client) ToggleMonitor() error { return c.SendFrame(BuildToggleMonitor()) }
+
+// ToggleRaw sends a toggle-raw ('k') frame.
+func (c *Client) ToggleRaw() error { return c.SendFrame(BuildToggleRaw()) }
+
+// EnableMonitor is a deprecated alias for ToggleMonitor.
+func (c *Client) EnableMonitor() error { return c.ToggleMonitor() }
+
+// EnableRaw is a deprecated alias for ToggleRaw.
+func (c *Client) EnableRaw() error { return c.ToggleRaw() }
+
+// Login sends a 'P' login frame with the given credentials.
+func (c *Client) Login(username, password string) error {
+	return c.SendFrame(BuildLogin(username, password))
+}
 
 // SendUnproto sends an AX.25 UI frame via AGWPE unproto.
 func (c *Client) SendUnproto(frame *ax25.Frame, port uint8) error {
@@ -185,20 +200,37 @@ func (c *Client) rxLoop() {
 			c.cfg.OnRxFrame(f)
 		})
 
-		buf := make([]byte, c.cfg.ReadBufSize)
+		type readResult struct {
+			data []byte
+			err  error
+		}
+		readCh := make(chan readResult, 1)
+		go func() {
+			buf := make([]byte, c.cfg.ReadBufSize)
+			for {
+				n, err := conn.Read(buf)
+				if n > 0 {
+					cp := make([]byte, n)
+					copy(cp, buf[:n])
+					readCh <- readResult{data: cp}
+				}
+				if err != nil {
+					readCh <- readResult{err: err}
+					return
+				}
+			}
+		}()
+
+	readLoop:
 		for {
-			_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-			n, err := conn.Read(buf)
-			if n > 0 {
-				_, _ = dec.Write(buf[:n])
-			}
-			if err != nil {
-				break
-			}
 			select {
 			case <-c.ctx.Done():
 				goto disconnected
-			default:
+			case r := <-readCh:
+				if r.err != nil {
+					break readLoop
+				}
+				_, _ = dec.Write(r.data)
 			}
 		}
 

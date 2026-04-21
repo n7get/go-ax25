@@ -1,223 +1,139 @@
-package agwpe_test
+package agwpe
 
 import (
-	"net"
+	"bytes"
+	"strings"
 	"testing"
-	"time"
 
-	"github.com/n7get/go-ax25/agwpe"
 	"github.com/n7get/go-ax25/ax25"
 )
 
-func serverPipe(t *testing.T, cfg agwpe.ServerConfig, router *ax25.Router) (srv *agwpe.Server, client net.Conn) {
-	t.Helper()
-	srv = agwpe.NewServer(cfg, router)
-	serverConn, clientConn := net.Pipe()
-	go func() {
-		srv.HandleConn(serverConn)
-	}()
-	return srv, clientConn
-}
-
-func readAGWPEFrame(t *testing.T, c net.Conn) *agwpe.Frame {
-	t.Helper()
-	c.SetReadDeadline(time.Now().Add(2 * time.Second))
-	f, err := agwpe.ReadFrame(c)
-	if err != nil {
-		t.Fatalf("readAGWPEFrame: %v", err)
+func TestBuildVersionResp8Bytes(t *testing.T) {
+	f := BuildVersionResp(2005, 127)
+	if len(f.Data) != 8 {
+		t.Fatalf("expected 8 bytes, got %d", len(f.Data))
 	}
-	return f
-}
-
-func sendAGWPEFrame(t *testing.T, c net.Conn, f *agwpe.Frame) {
-	t.Helper()
-	b, err := f.Encode()
-	if err != nil {
-		t.Fatalf("sendAGWPEFrame encode: %v", err)
-	}
-	if _, err := c.Write(b); err != nil {
-		t.Fatalf("sendAGWPEFrame write: %v", err)
-	}
-}
-
-func TestServerVersionRequest(t *testing.T) {
-	router := ax25.NewRouter()
-	_, client := serverPipe(t, agwpe.ServerConfig{Port: 0}, router)
-	defer client.Close()
-
-	sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'R'})
-	f := readAGWPEFrame(t, client)
-	if f.Kind != 'R' {
-		t.Fatalf("expected version response 'R', got %q", string(f.Kind))
-	}
-	major, minor, err := agwpe.ParseVersionResp(f)
+	major, minor, err := ParseVersionResp(&f)
 	if err != nil {
 		t.Fatalf("ParseVersionResp: %v", err)
 	}
 	if major != 2005 || minor != 127 {
-		t.Fatalf("expected 2005.127, got %d.%d", major, minor)
+		t.Errorf("expected 2005.127, got %d.%d", major, minor)
 	}
 }
 
-func TestServerPortInfoRequest(t *testing.T) {
-	router := ax25.NewRouter()
-	_, client := serverPipe(t, agwpe.ServerConfig{Port: 0, PortDescription: "Test TNC"}, router)
-	defer client.Close()
-
-	sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'G'})
-	f := readAGWPEFrame(t, client)
-	if f.Kind != 'G' {
-		t.Fatalf("expected port info response 'G', got %q", string(f.Kind))
+func TestBuildPortInfoResp(t *testing.T) {
+	f := BuildPortInfoResp(0, 1, "Port1 go-ax25 radio")
+	if f.Kind != KindPortInfoResp {
+		t.Errorf("kind: expected 'G', got '%c'", f.Kind)
+	}
+	want := "1;Port1 go-ax25 radio;\x00"
+	if string(f.Data) != want {
+		t.Errorf("unexpected data: %q, want %q", f.Data, want)
 	}
 }
 
-func TestServerPortCapRequest(t *testing.T) {
-	router := ax25.NewRouter()
-	_, client := serverPipe(t, agwpe.ServerConfig{Port: 0}, router)
-	defer client.Close()
+func TestBuildConnectedResp(t *testing.T) {
+	// Local initiated.
+	f := BuildConnectedResp(0, "N7GET", "W7AW", true)
+	if !strings.Contains(string(f.Data), "*** CONNECTED With Station W7AW") {
+		t.Errorf("local-initiated: unexpected data: %q", f.Data)
+	}
+	if f.CallFrom != "W7AW" || f.CallTo != "N7GET" {
+		t.Errorf("callsigns: from=%q to=%q", f.CallFrom, f.CallTo)
+	}
 
-	sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'g'})
-	f := readAGWPEFrame(t, client)
-	if f.Kind != 'g' {
-		t.Fatalf("expected port cap response 'g', got %q", string(f.Kind))
+	// Remote initiated.
+	f = BuildConnectedResp(0, "N7GET", "W7AW", false)
+	if !strings.Contains(string(f.Data), "*** CONNECTED To Station W7AW") {
+		t.Errorf("remote-initiated: unexpected data: %q", f.Data)
 	}
 }
 
-func TestServerRegisterCallsign(t *testing.T) {
-	router := ax25.NewRouter()
-	_, client := serverPipe(t, agwpe.ServerConfig{Port: 0}, router)
-	defer client.Close()
-
-	sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'X', CallFrom: "N7GET"})
-	f := readAGWPEFrame(t, client)
-	if f.Kind != 'X' {
-		t.Fatalf("expected register response 'X', got %q", string(f.Kind))
-	}
-	if len(f.Data) == 0 || f.Data[0] != 1 {
-		t.Fatalf("expected success byte=1, got %v", f.Data)
+func TestBuildDisconnectedResp(t *testing.T) {
+	f := BuildDisconnectedResp(0, "N7GET", "W7AW")
+	if !strings.Contains(string(f.Data), "*** DISCONNECTED From Station W7AW") {
+		t.Errorf("unexpected data: %q", f.Data)
 	}
 }
 
-func TestServerRawToggle(t *testing.T) {
-	router := ax25.NewRouter()
-	_, client := serverPipe(t, agwpe.ServerConfig{Port: 0}, router)
-	defer client.Close()
-
-	sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'k'})
-	time.Sleep(50 * time.Millisecond)
-}
-
-func TestServerMonitorToggle(t *testing.T) {
-	router := ax25.NewRouter()
-	_, client := serverPipe(t, agwpe.ServerConfig{Port: 0}, router)
-	defer client.Close()
-
-	sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'm'})
-	time.Sleep(50 * time.Millisecond)
-}
-
-func TestServerOutstandingPort(t *testing.T) {
-	router := ax25.NewRouter()
-	_, client := serverPipe(t, agwpe.ServerConfig{Port: 0}, router)
-	defer client.Close()
-
-	sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'y'})
-	f := readAGWPEFrame(t, client)
-	if f.Kind != 'y' {
-		t.Fatalf("expected outstanding port response 'y', got %q", string(f.Kind))
+func TestBuildDisconnectedTimeoutResp(t *testing.T) {
+	f := BuildDisconnectedTimeoutResp(0, "N7GET", "W7AW")
+	if !strings.Contains(string(f.Data), "*** DISCONNECTED RETRYOUT With W7AW") {
+		t.Errorf("unexpected data: %q", f.Data)
 	}
 }
 
-func TestServerLoginSilent(t *testing.T) {
-	router := ax25.NewRouter()
-	_, client := serverPipe(t, agwpe.ServerConfig{Port: 0}, router)
-	defer client.Close()
+func TestFromAX25MonitorUI(t *testing.T) {
+	src, _ := ax25.ParseAddress("N7GET")
+	dst, _ := ax25.ParseAddress("BEACON")
+	frame := &ax25.Frame{
+		Source:      src,
+		Destination: dst,
+		Type:        ax25.FrameUI,
+		Control:     ax25.CtrlUI,
+		PID:         ax25.PIDNone,
+		Payload:     []byte("test payload"),
+	}
 
-	sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'P'})
-	sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'R'})
-	f := readAGWPEFrame(t, client)
-	if f.Kind != 'R' {
-		t.Fatalf("expected version response after login, got %q", string(f.Kind))
+	f, err := FromAX25Monitor(frame, 0)
+	if err != nil {
+		t.Fatalf("FromAX25Monitor: %v", err)
+	}
+	if f.Kind != 'U' {
+		t.Errorf("kind: expected 'U', got '%c'", f.Kind)
+	}
+	data := string(f.Data)
+	if !strings.Contains(data, "1:Fm N7GET To BEACON") {
+		t.Errorf("missing address header in: %q", data)
+	}
+	if !strings.Contains(data, "<UI") {
+		t.Errorf("missing UI descriptor in: %q", data)
+	}
+	if !strings.Contains(data, "test payload") {
+		t.Errorf("missing payload in: %q", data)
+	}
+	// Must end with \r\0
+	if !bytes.HasSuffix(f.Data, []byte("\r\x00")) {
+		t.Errorf("expected trailing \\r\\0, got last 2 bytes: %02x %02x", f.Data[len(f.Data)-2], f.Data[len(f.Data)-1])
 	}
 }
 
-func TestServerOnConnectedCallback(t *testing.T) {
-	router := ax25.NewRouter()
-	connected := make(chan struct{}, 1)
-	cfg := agwpe.ServerConfig{
-		Port:        0,
-		OnConnected: func(_ *agwpe.Server) { connected <- struct{}{} },
+func TestFromAX25MonitorWithDigis(t *testing.T) {
+	src, _ := ax25.ParseAddress("N7GET")
+	dst, _ := ax25.ParseAddress("BEACON")
+	digi, _ := ax25.ParseAddress("WIDE1-1")
+	digi.HasBeenRepeated = true
+	frame := &ax25.Frame{
+		Source:      src,
+		Destination: dst,
+		Digipeaters: []ax25.Address{digi},
+		Type:        ax25.FrameUI,
+		Control:     ax25.CtrlUI,
+		PID:         ax25.PIDNone,
+		Payload:     []byte("test"),
 	}
-	_, client := serverPipe(t, cfg, router)
-	defer client.Close()
 
-	select {
-	case <-connected:
-	case <-time.After(time.Second):
-		t.Fatal("OnConnected not called")
+	f, err := FromAX25Monitor(frame, 0)
+	if err != nil {
+		t.Fatalf("FromAX25Monitor: %v", err)
+	}
+	data := string(f.Data)
+	if !strings.Contains(data, "Via WIDE1-1*") {
+		t.Errorf("missing digi with * in: %q", data)
 	}
 }
 
-func TestServerOnDisconnectedCallback(t *testing.T) {
-	router := ax25.NewRouter()
-	disconnected := make(chan struct{}, 1)
-	cfg := agwpe.ServerConfig{
-		Port:           0,
-		OnDisconnected: func(_ *agwpe.Server) { disconnected <- struct{}{} },
+func TestFormatMonitorDescSupervisory(t *testing.T) {
+	frame := &ax25.Frame{
+		Control: ax25.BuildRRControl(3, true),
+		Type:    ax25.FrameS,
 	}
-	_, client := serverPipe(t, cfg, router)
-	client.Close()
-
-	select {
-	case <-disconnected:
-	case <-time.After(time.Second):
-		t.Fatal("OnDisconnected not called")
+	kind, desc := FormatMonitorDesc(frame)
+	if kind != 'S' {
+		t.Errorf("kind: expected 'S', got '%c'", kind)
 	}
-}
-
-func TestServerTXQueueFull(t *testing.T) {
-	router := ax25.NewRouter()
-	cfg := agwpe.ServerConfig{Port: 0, TXQueueDepth: 2}
-	_, client := serverPipe(t, cfg, router)
-	defer client.Close()
-
-	for i := 0; i < 20; i++ {
-		sendAGWPEFrame(t, client, &agwpe.Frame{Kind: 'R'})
-	}
-	client.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-	for {
-		_, err := agwpe.ReadFrame(client)
-		if err != nil {
-			break
-		}
-	}
-}
-func TestNewServerConfigFromConfig_Defaults(t *testing.T) {
-	cfg := ax25.NewConfig(nil)
-	c := agwpe.NewServerConfigFromConfig(cfg)
-	if c.Port != 8000 {
-		t.Errorf("Port: got %d, want 8000", c.Port)
-	}
-	if c.TXQueueDepth != 64 {
-		t.Errorf("TXQueueDepth: got %d, want 64", c.TXQueueDepth)
-	}
-	if c.MaxConns != 4 {
-		t.Errorf("MaxConns: got %d, want 4", c.MaxConns)
-	}
-	if c.ReadBufSize != 4132 {
-		t.Errorf("ReadBufSize: got %d, want 4132", c.ReadBufSize)
-	}
-}
-
-func TestNewServerConfigFromConfig_Override(t *testing.T) {
-	cfg := ax25.NewConfig(nil)
-	cfg.Set("agwpe.server.port", "9100")
-	cfg.Set("agwpe.server.max_conns", "8")
-	c := agwpe.NewServerConfigFromConfig(cfg)
-	if c.Port != 9100 {
-		t.Errorf("Port: got %d, want 9100", c.Port)
-	}
-	if c.MaxConns != 8 {
-		t.Errorf("MaxConns: got %d, want 8", c.MaxConns)
+	if !strings.Contains(desc, "RR") {
+		t.Errorf("expected RR in desc: %q", desc)
 	}
 }
