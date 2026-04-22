@@ -29,13 +29,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	digiCall := cfg.GetStr("digi.callsign", "")
+	digiCall := cfg.GetStr(ax25.KeyDigiCallsign)
 	if digiCall == "" {
 		slog.Error("digi.callsign not set in config")
 		os.Exit(1)
 	}
 
-	serialRW, err := serial.Open(cfg.GetStr("kiss.serial.device", "/dev/ttyUSB0"), &serial.Mode{BaudRate: cfg.GetInt("kiss.serial.baud", 9600)})
+	serialRW, err := serial.Open(cfg.GetStr(ax25.KeyKissSerialDevice), &serial.Mode{BaudRate: cfg.GetInt(ax25.KeyKissSerialBaud)})
 	if err != nil {
 		slog.Error("open serial port", "err", err)
 		os.Exit(1)

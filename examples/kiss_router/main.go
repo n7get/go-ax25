@@ -136,12 +136,6 @@ func (p *tcpPool) stopAll() {
 	}
 }
 
-func (p *tcpPool) count() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return len(p.clients)
-}
-
 // ── TCP KISS server ──────────────────────────────────────────────────────────
 
 func serveTCP(ln net.Listener, pool *tcpPool) {
@@ -171,15 +165,16 @@ func main() {
 	}
 
 	cfg := ax25.NewConfig(nil)
+	cfg.Set(ax25.KeyKissSerialBaud, "57600") // router default; overridden by config file
 	if err := cfg.LoadINI(*cfgPath); err != nil {
 		fmt.Fprintln(os.Stderr, "error: failed to load config:", err)
 		os.Exit(2)
 	}
 
-	serialPort := cfg.GetStr("kiss.serial.device", "/dev/ttyUSB0")
-	serialBaud := cfg.GetInt("kiss.serial.baud", 57600)
-	listenAddr := cfg.GetStr("kiss.server.port", ":8100")
-	maxClients := cfg.GetInt("kiss.server.max_clients", 8)
+	serialPort := cfg.GetStr(ax25.KeyKissSerialDevice)
+	serialBaud := cfg.GetInt(ax25.KeyKissSerialBaud)
+	listenAddr := cfg.GetStr(ax25.KeyKissServerAddr)
+	maxClients := cfg.GetInt(ax25.KeyKissServerMaxClients)
 
 	slog.Info("ROUTER: ESP-AX25 KISS Router (Go)")
 

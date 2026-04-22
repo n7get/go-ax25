@@ -203,8 +203,8 @@ var _ PHY = (*KISSSerialPHY)(nil)
 // KISSSerialConfigFromConfig populates KISSSerialPHYConfig from Config.
 func KISSSerialConfigFromConfig(cfg *Config) KISSSerialPHYConfig {
 	return KISSSerialPHYConfig{
-		RxQueueDepth: cfg.GetInt("kiss.serial.rx_queue_depth", 64),
-		TxQueueDepth: cfg.GetInt("kiss.serial.tx_queue_depth", 32),
-		ReadBufSize:  cfg.GetInt("kiss.serial.read_buf", 1024),
+		RxQueueDepth: cfg.GetInt(KeyKissSerialRxQueueDepth),
+		TxQueueDepth: cfg.GetInt(KeyKissSerialTxQueueDepth),
+		ReadBufSize:  cfg.GetInt(KeyKissSerialReadBuf),
 	}
 }

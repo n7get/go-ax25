@@ -28,10 +28,10 @@ type ServerConfig struct {
 // NewServerConfigFromConfig populates ServerConfig from ax25.Config.
 func NewServerConfigFromConfig(cfg *ax25.Config) ServerConfig {
 	return ServerConfig{
-		Port:         cfg.GetInt("agwpe.server.port", 8000),
-		TXQueueDepth: cfg.GetInt("agwpe.server.tx_queue_depth", 64),
-		MaxConns:     cfg.GetInt("agwpe.server.max_conns", 4),
-		ReadBufSize:  cfg.GetInt("agwpe.server.read_buf", 4132),
+		Port:         cfg.GetInt(ax25.KeyAgwpeServerPort),
+		TXQueueDepth: cfg.GetInt(ax25.KeyAgwpeServerTxQueueDepth),
+		MaxConns:     cfg.GetInt(ax25.KeyAgwpeServerMaxConns),
+		ReadBufSize:  cfg.GetInt(ax25.KeyAgwpeServerReadBuf),
 	}
 }
 

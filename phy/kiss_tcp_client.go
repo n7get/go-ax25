@@ -26,12 +26,12 @@ type KISSTCPClientConfig struct {
 // NewKISSTCPClientConfigFromConfig populates KISSTCPClientConfig from ax25.Config.
 func NewKISSTCPClientConfigFromConfig(cfg *ax25.Config) KISSTCPClientConfig {
 	return KISSTCPClientConfig{
-		Host:           cfg.GetStr("kiss.client.host", "localhost"),
-		Port:           uint16(cfg.GetInt("kiss.client.port", 8001)),
+		Host:           cfg.GetStr(ax25.KeyKissClientHost),
+		Port:           uint16(cfg.GetInt(ax25.KeyKissClientPort)),
 		ConnectTimeout: 6 * time.Second, // Could be made configurable
 		ReconnectDelay: 5 * time.Second, // Could be made configurable
-		TXQueueDepth:   cfg.GetInt("kiss.client.tx_queue_depth", 8),
-		ReadBufSize:    cfg.GetInt("kiss.client.read_buf", 4096),
+		TXQueueDepth:   cfg.GetInt(ax25.KeyKissClientTxQueueDepth),
+		ReadBufSize:    cfg.GetInt(ax25.KeyKissClientReadBuf),
 	}
 }
 

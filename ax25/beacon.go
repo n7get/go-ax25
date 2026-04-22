@@ -26,16 +26,16 @@ type BeaconConfig struct {
 
 // BeaconConfigFromConfig reads beacon parameters from a Config.
 func BeaconConfigFromConfig(cfg *Config) BeaconConfig {
-	minutes := cfg.GetInt("beacon.every", 0)
+	minutes := cfg.GetInt(KeyBeaconEvery)
 	var every time.Duration
 	if minutes > 0 {
 		every = time.Duration(minutes) * time.Minute
 	}
 	return BeaconConfig{
-		Source:      cfg.GetStr("beacon.source", ""),
-		Destination: cfg.GetStr("beacon.destination", "BEACON"),
-		Via:         cfg.GetStr("beacon.via", ""),
-		Text:        cfg.GetStr("beacon.text", "go-ax25"),
+		Source:      cfg.GetStr(KeyBeaconSource),
+		Destination: cfg.GetStr(KeyBeaconDestination),
+		Via:         cfg.GetStr(KeyBeaconVia),
+		Text:        cfg.GetStr(KeyBeaconText),
 		Every:       every,
 	}
 }

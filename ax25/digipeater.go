@@ -23,7 +23,7 @@ type DigiConfig struct {
 // DigiConfigFromConfig reads digipeater parameters from a Config.
 func DigiConfigFromConfig(cfg *Config) DigiConfig {
 	return DigiConfig{
-		Callsign: cfg.GetStr("digi.callsign", ""),
+		Callsign: cfg.GetStr(KeyDigiCallsign),
 	}
 }
 

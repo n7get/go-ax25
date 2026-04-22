@@ -56,9 +56,9 @@ type KISSTCPServerConfig struct {
 // NewKISSTCPServerConfigFromConfig populates KISSTCPServerConfig from ax25.Config.
 func NewKISSTCPServerConfigFromConfig(cfg *ax25.Config) KISSTCPServerConfig {
 	return KISSTCPServerConfig{
-		Port:         uint16(cfg.GetInt("kiss.server.port", 8100)),
-		TXQueueDepth: cfg.GetInt("kiss.server.tx_queue_depth", 8),
-		ReadBufSize:  cfg.GetInt("kiss.server.read_buf", 4096),
+		Port:         uint16(cfg.GetInt(ax25.KeyKissServerPort)),
+		TXQueueDepth: cfg.GetInt(ax25.KeyKissServerTxQueueDepth),
+		ReadBufSize:  cfg.GetInt(ax25.KeyKissServerReadBuf),
 	}
 }
 

@@ -22,8 +22,8 @@ type KISSSerialConfig struct {
 // The caller must set Port to the opened io.ReadWriter before use.
 func NewKISSSerialConfigFromConfig(cfg *ax25.Config) KISSSerialConfig {
 	return KISSSerialConfig{
-		TXQueueDepth: cfg.GetInt("kiss.serial.tx_queue_depth", 32),
-		ReadBufSize:  cfg.GetInt("kiss.serial.read_buf", 1024),
+		TXQueueDepth: cfg.GetInt(ax25.KeyKissSerialTxQueueDepth),
+		ReadBufSize:  cfg.GetInt(ax25.KeyKissSerialReadBuf),
 	}
 }
 

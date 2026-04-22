@@ -25,12 +25,12 @@ type ClientConfig struct {
 // NewClientConfigFromConfig populates ClientConfig from ax25.Config.
 func NewClientConfigFromConfig(cfg *ax25.Config) ClientConfig {
 	return ClientConfig{
-		Host:           cfg.GetStr("agwpe.client.host", "localhost"),
-		Port:           uint16(cfg.GetInt("agwpe.client.port", 8000)),
+		Host:           cfg.GetStr(ax25.KeyAgwpeClientHost),
+		Port:           uint16(cfg.GetInt(ax25.KeyAgwpeClientPort)),
 		ConnectTimeout: 6 * time.Second,
 		ReconnectDelay: 5 * time.Second,
-		TXQueueDepth:   cfg.GetInt("agwpe.client.tx_queue_depth", 8),
-		ReadBufSize:    cfg.GetInt("agwpe.client.read_buf", 4132),
+		TXQueueDepth:   cfg.GetInt(ax25.KeyAgwpeClientTxQueueDepth),
+		ReadBufSize:    cfg.GetInt(ax25.KeyAgwpeClientReadBuf),
 	}
 }
 

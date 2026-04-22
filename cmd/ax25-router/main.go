@@ -154,23 +154,24 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})))
 
 	cfg := ax25.NewConfig(nil)
+	cfg.Set(ax25.KeyKissSerialBaud, "57600") // router default; overridden by config file
 	if err := cfg.LoadINI(*cfgPath); err != nil {
 		fmt.Fprintln(os.Stderr, "error: failed to load config:", err)
 		os.Exit(2)
 	}
 
 	// Serial KISS TNC
-	serialDevice := cfg.GetStr("kiss.serial.device", "/dev/ttyUSB0")
-	serialBaud := cfg.GetInt("kiss.serial.baud", 57600)
+	serialDevice := cfg.GetStr(ax25.KeyKissSerialDevice)
+	serialBaud := cfg.GetInt(ax25.KeyKissSerialBaud)
 
 	// TCP KISS server
-	kissServerEnabled := cfg.GetBool("kiss.server.enabled", true)
-	kissListenAddr := cfg.GetStr("kiss.server.addr", ":8100")
-	kissMaxClients := cfg.GetInt("kiss.server.max_clients", 8)
+	kissServerEnabled := cfg.GetBool(ax25.KeyKissServerEnabled)
+	kissListenAddr := cfg.GetStr(ax25.KeyKissServerAddr)
+	kissMaxClients := cfg.GetInt(ax25.KeyKissServerMaxClients)
 
 	// AGWPE TCP server
-	agwpeEnabled := cfg.GetBool("agwpe.server.enabled", true)
-	agwpePort := cfg.GetInt("agwpe.server.port", 8000)
+	agwpeEnabled := cfg.GetBool(ax25.KeyAgwpeServerEnabled)
+	agwpePort := cfg.GetInt(ax25.KeyAgwpeServerPort)
 
 	slog.Info("ax25-router starting",
 		"serial", serialDevice,

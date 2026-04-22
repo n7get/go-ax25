@@ -44,9 +44,9 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	serialPort := cfg.GetStr("kiss.serial.device", "/dev/ttyUSB0")
-	serialBaud := cfg.GetInt("kiss.serial.baud", 9600)
-	agwpePort := cfg.GetInt("agwpe.server.port", 8000)
+	serialPort := cfg.GetStr(ax25.KeyKissSerialDevice)
+	serialBaud := cfg.GetInt(ax25.KeyKissSerialBaud)
+	agwpePort := cfg.GetInt(ax25.KeyAgwpeServerPort)
 
 	slog.Info("starting agwpe_server", "serial", serialPort, "baud", serialBaud, "agwpe_port", agwpePort)
 
