@@ -4,13 +4,14 @@
 package ax25
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+
+	ini "gopkg.in/ini.v1"
 )
 
 // ---------------------------------------------------------------------------
@@ -105,41 +106,38 @@ func NewConfig(extra []ConfigParam) *Config {
 
 // LoadINI reads key=value pairs from an INI file, ignoring comments and blanks.
 func (c *Config) LoadINI(path string) error {
-	f, err := os.Open(path)
+	_, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil // missing file is not an error
 		}
-		return fmt.Errorf("ax25: config: open %q: %w", path, err)
+		return fmt.Errorf("ax25: config: stat %q: %w", path, err)
 	}
-	defer f.Close()
+
+	file, err := ini.LoadSources(ini.LoadOptions{
+		SkipUnrecognizableLines: true,
+		IgnoreInlineComment:     true,
+	}, path)
+	if err != nil {
+		return fmt.Errorf("ax25: config: parse %q: %w", path, err)
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	scanner := bufio.NewScanner(f)
-	var section string
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-			continue
+	for _, section := range file.Sections() {
+		sectionName := section.Name()
+		for _, key := range section.Keys() {
+			cfgKey := key.Name()
+			if sectionName != ini.DefaultSection {
+				cfgKey = sectionName + "." + cfgKey
+			}
+			// Keep compatibility with previous parser behavior for inline comments,
+			// escaping, and quoted strings.
+			c.values[cfgKey] = parseINIValue(strings.TrimSpace(key.Value()))
 		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section = strings.TrimSpace(line[1 : len(line)-1])
-			continue
-		}
-		idx := strings.IndexByte(line, '=')
-		if idx < 0 {
-			continue
-		}
-		key := strings.TrimSpace(line[:idx])
-		val := parseINIValue(strings.TrimSpace(line[idx+1:]))
-		if section != "" {
-			key = section + "." + key
-		}
-		c.values[key] = val
 	}
-	return scanner.Err()
+	return nil
 }
 
 // parseINIValue strips an inline # comment (unless escaped with \) and
