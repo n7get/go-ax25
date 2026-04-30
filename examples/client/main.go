@@ -304,7 +304,7 @@ func main() {
 
 	// ── build router ──
 	slog.Debug("Creating AX.25 router")
-	router := ax25.NewRouter()
+	router := ax25.NewRouter(nil)
 
 	app := &appCtx{router: router, doneCh: make(chan struct{})}
 	slog.Debug("App context initialized")

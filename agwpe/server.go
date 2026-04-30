@@ -358,6 +358,9 @@ func (s *Server) setupListener(callsign string) {
 		Mode:        ax25.PortModeStatic,
 		Destination: addr,
 		OnRxFrame: func(f *ax25.Frame) {
+			if f == nil || !f.Destination.Equal(addr) {
+				return
+			}
 			if err := conn.OnFrame(f); err != nil {
 				slog.Warn("agwpe server: listener conn.OnFrame error", "callsign", callsign, "err", err)
 			}
@@ -514,6 +517,9 @@ func (s *Server) handleConnect(f *Frame, digis []ax25.Address) {
 		Mode:        ax25.PortModeStatic,
 		Destination: localAddr,
 		OnRxFrame: func(f *ax25.Frame) {
+			if f == nil || !f.Destination.Equal(localAddr) {
+				return
+			}
 			if err := conn.OnFrame(f); err != nil {
 				slog.Warn("agwpe server: conn.OnFrame error", "err", err)
 			}

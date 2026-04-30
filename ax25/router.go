@@ -19,7 +19,7 @@ const (
 	PortModeDefault                     // receives frames with no matching static port
 	PortModePromiscuous                 // receives all frames
 	PortModeDigipeater                  // receives frames whose next digi hop matches Destination
-	PortModeDynamic                     // receives frames addressed to a dynamically bound address
+	PortModeDynamic                     // auto-binds to the source address of the first frame sent through it; behaves as static thereafter
 )
 
 var (
@@ -127,16 +127,51 @@ func (p *Port) deliver(f *Frame) bool {
 
 const defaultPortQueueDepth = 32
 
+// RouterMode controls how the router dispatches frames between ports.
+type RouterMode int
+
+const (
+	RouterModeSwitch RouterMode = iota // full AX.25 routing (static/dynamic/default/promiscuous/digipeater)
+	RouterModeBridge                   // forwards between client ports and the default port only
+	RouterModeHub                      // forwards to every port except the source port
+)
+
 // Router routes AX.25 frames between registered ports.
 type Router struct {
+	Mode   RouterMode
 	mu     sync.RWMutex
 	ports  []*Port
 	closed atomic.Bool
 }
 
-// NewRouter creates a new Router.
-func NewRouter() *Router {
-	return &Router{}
+// NewRouter creates a new Router with the given mode.
+// Pass nil to use the default mode (RouterModeSwitch).
+func NewRouter(mode *RouterMode) *Router {
+	r := &Router{}
+	if mode != nil {
+		r.Mode = *mode
+	}
+	return r
+}
+
+// RouterModeFromConfig reads the "router.mode" key from cfg and returns a
+// pointer to the corresponding RouterMode constant, or nil if the value is
+// unrecognised (causing NewRouter to fall back to RouterModeSwitch).
+func RouterModeFromConfig(cfg *Config) *RouterMode {
+	switch cfg.GetStr(KeyRouterMode) {
+	case "switch":
+		m := RouterModeSwitch
+		return &m
+	case "bridge":
+		m := RouterModeBridge
+		return &m
+	case "hub":
+		m := RouterModeHub
+		return &m
+	default:
+		m := RouterModeSwitch
+		return &m
+	}
 }
 
 // RegisterPort adds a port to the router and starts its worker goroutine.
@@ -184,8 +219,6 @@ func (r *Router) Close() {
 
 // Send routes a frame from srcPort to all matching destination ports.
 // srcPort may be nil (e.g. for internally generated frames).
-// If srcPort is a Dynamic port with no Destination bound yet, it is
-// automatically bound to f.Source (the callsign of the first sender).
 func (r *Router) Send(f *Frame, srcPort *Port) error {
 	if f == nil {
 		return ErrNilFrame
@@ -197,6 +230,24 @@ func (r *Router) Send(f *Frame, srcPort *Port) error {
 		return ErrRouterClosed
 	}
 
+	r.mu.RLock()
+	ports := make([]*Port, len(r.ports))
+	copy(ports, r.ports)
+	r.mu.RUnlock()
+
+	switch r.Mode {
+	case RouterModeBridge:
+		r.sendBridge(f, srcPort, ports)
+	case RouterModeHub:
+		r.sendHub(f, srcPort, ports)
+	default:
+		r.sendRouter(f, srcPort, ports)
+	}
+	return nil
+}
+
+// sendRouter implements full AX.25 frame routing (the original Send logic).
+func (r *Router) sendRouter(f *Frame, srcPort *Port, ports []*Port) {
 	// Bind an unbound dynamic port to the source callsign of its first frame.
 	if srcPort.Mode == PortModeDynamic {
 		srcPort.mu.Lock()
@@ -213,11 +264,6 @@ func (r *Router) Send(f *Frame, srcPort *Port) error {
 	LogFrame(slog.LevelDebug, "ax25: router: send", f,
 		slog.Bool("has_next_digi", r.hasUnrepeatedDigi(f)),
 	)
-
-	r.mu.RLock()
-	ports := make([]*Port, len(r.ports))
-	copy(ports, r.ports)
-	r.mu.RUnlock()
 
 	var (
 		staticMatch  *Port
@@ -279,8 +325,51 @@ func (r *Router) Send(f *Frame, srcPort *Port) error {
 	} else {
 		LogFrame(slog.LevelDebug, "ax25: router: no match, frame dropped", f)
 	}
+}
 
-	return nil
+// sendBridge forwards frames between client ports and default (uplink) port only.
+// Frames from a default port are delivered to all non-default port.
+// Frames from a non-default (client) port are delivered to the default port.
+func (r *Router) sendBridge(f *Frame, srcPort *Port, ports []*Port) {
+	LogFrame(slog.LevelDebug, "ax25: bridge: send", f)
+
+	var defaultPorts, clientPorts []*Port
+	for _, p := range ports {
+		if p == srcPort {
+			continue
+		}
+		if p.Mode == PortModeDefault {
+			defaultPorts = append(defaultPorts, p)
+		} else {
+			clientPorts = append(clientPorts, p)
+		}
+	}
+
+	if srcPort.Mode == PortModeDefault {
+		// Inbound from uplink → deliver to all client ports.
+		for _, p := range clientPorts {
+			LogFrame(slog.LevelDebug, "ax25: bridge: deliver to client", f)
+			p.deliver(cloneFrame(f))
+		}
+	} else {
+		// Outbound from client → deliver to all default (uplink) ports.
+		for _, p := range defaultPorts {
+			LogFrame(slog.LevelDebug, "ax25: bridge: deliver to default", f)
+			p.deliver(cloneFrame(f))
+		}
+	}
+}
+
+// sendHub delivers a copy of f to every registered port except srcPort.
+func (r *Router) sendHub(f *Frame, srcPort *Port, ports []*Port) {
+	LogFrame(slog.LevelDebug, "ax25: hub: send", f)
+	for _, p := range ports {
+		if p == srcPort {
+			continue
+		}
+		LogFrame(slog.LevelDebug, "ax25: hub: deliver", f)
+		p.deliver(cloneFrame(f))
+	}
 }
 
 // hasUnrepeatedDigi returns true if f has any digipeater hop not yet marked as repeated.

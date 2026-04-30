@@ -68,11 +68,13 @@ const (
 
 	KeyDigiCallsign ConfigKey = "digi.callsign"
 
+	KeyKissClientEnabled      ConfigKey = "kiss.client.enabled"
 	KeyKissClientHost         ConfigKey = "kiss.client.host"
 	KeyKissClientPort         ConfigKey = "kiss.client.port"
 	KeyKissClientReadBuf      ConfigKey = "kiss.client.read_buf"
 	KeyKissClientTxQueueDepth ConfigKey = "kiss.client.tx_queue_depth"
 
+	KeyKissSerialEnabled      ConfigKey = "kiss.serial.enabled"
 	KeyKissSerialBaud         ConfigKey = "kiss.serial.baud"
 	KeyKissSerialDevice       ConfigKey = "kiss.serial.device"
 	KeyKissSerialReadBuf      ConfigKey = "kiss.serial.read_buf"
@@ -86,6 +88,7 @@ const (
 	KeyKissServerReadBuf      ConfigKey = "kiss.server.read_buf"
 	KeyKissServerTxQueueDepth ConfigKey = "kiss.server.tx_queue_depth"
 
+	KeyRouterMode           ConfigKey = "router.mode"
 	KeyRouterPortQueueDepth ConfigKey = "router.port_queue_depth"
 	KeyStationCallsign      ConfigKey = "station.callsign"
 	KeyStationSsid          ConfigKey = "station.ssid"
@@ -98,10 +101,10 @@ var allConfigKeys = []ConfigKey{
 	KeyBeaconDestination, KeyBeaconEvery, KeyBeaconSource, KeyBeaconText, KeyBeaconVia,
 	KeyConnN2Retries, KeyConnT1Ms, KeyConnT2Ms, KeyConnT3Ms, KeyConnWindowSize,
 	KeyDigiCallsign,
-	KeyKissClientHost, KeyKissClientPort, KeyKissClientReadBuf, KeyKissClientTxQueueDepth,
-	KeyKissSerialBaud, KeyKissSerialDevice, KeyKissSerialReadBuf, KeyKissSerialRxQueueDepth, KeyKissSerialTxQueueDepth,
+	KeyKissClientEnabled, KeyKissClientHost, KeyKissClientPort, KeyKissClientReadBuf, KeyKissClientTxQueueDepth,
+	KeyKissSerialEnabled, KeyKissSerialBaud, KeyKissSerialDevice, KeyKissSerialReadBuf, KeyKissSerialRxQueueDepth, KeyKissSerialTxQueueDepth,
 	KeyKissServerAddr, KeyKissServerEnabled, KeyKissServerMaxClients, KeyKissServerPort, KeyKissServerReadBuf, KeyKissServerTxQueueDepth,
-	KeyRouterPortQueueDepth,
+	KeyRouterMode, KeyRouterPortQueueDepth,
 	KeyStationCallsign, KeyStationSsid,
 }
 
@@ -138,6 +141,7 @@ var DefaultSchema = []ConfigParam{
 	{Key: KeyConnWindowSize, DefaultValue: "4", Description: "k: maximum outstanding I-frames (1-7)"},
 
 	// Router
+	{Key: KeyRouterMode, DefaultValue: "switch", Description: "Router dispatch mode: switch, bridge, or hub"},
 	{Key: KeyRouterPortQueueDepth, DefaultValue: "32", Description: "Default per-port frame queue depth"},
 
 	// AGWPE client
@@ -154,6 +158,7 @@ var DefaultSchema = []ConfigParam{
 	{Key: KeyAgwpeServerMaxConns, DefaultValue: "4", Description: "AGWPE server max simultaneous AX.25 connections"},
 
 	// KISS serial PHY
+	{Key: KeyKissSerialEnabled, DefaultValue: "false", Description: "Enable serial KISS PHY (mutually exclusive with KISS TCP client)"},
 	{Key: KeyKissSerialDevice, DefaultValue: "/dev/ttyUSB0", Description: "Serial device for KISS TNC"},
 	{Key: KeyKissSerialBaud, DefaultValue: "9600", Description: "Serial baud rate"},
 	{Key: KeyKissSerialReadBuf, DefaultValue: "1024", Description: "KISS serial rx read buffer size (bytes)"},
@@ -161,6 +166,7 @@ var DefaultSchema = []ConfigParam{
 	{Key: KeyKissSerialTxQueueDepth, DefaultValue: "32", Description: "KISS serial tx frame queue depth"},
 
 	// KISS TCP client PHY
+	{Key: KeyKissClientEnabled, DefaultValue: "false", Description: "Enable KISS TCP client PHY (mutually exclusive with serial PHY)"},
 	{Key: KeyKissClientHost, DefaultValue: "localhost", Description: "KISS TCP client host"},
 	{Key: KeyKissClientPort, DefaultValue: "8001", Description: "KISS TCP client port"},
 	{Key: KeyKissClientReadBuf, DefaultValue: "4096", Description: "KISS TCP client rx read buffer size (bytes)"},

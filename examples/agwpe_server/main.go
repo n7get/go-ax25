@@ -50,7 +50,7 @@ func main() {
 
 	slog.Info("starting agwpe_server", "serial", serialPort, "baud", serialBaud, "agwpe_port", agwpePort)
 
-	router := ax25.NewRouter()
+	router := ax25.NewRouter(nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

@@ -193,7 +193,7 @@ func main() {
 	}
 
 	// ── build router ──
-	router := ax25.NewRouter()
+	router := ax25.NewRouter(nil)
 
 	// UART port: default — any frame without a more specific destination
 	// goes out to the radio.

@@ -55,7 +55,7 @@ func main() {
 	}
 	defer kissPHY.Stop()
 
-	router := ax25.NewRouter()
+	router := ax25.NewRouter(nil)
 
 	// phyPort is the source port for all frames arriving from the radio.
 	phyPort := &ax25.Port{
