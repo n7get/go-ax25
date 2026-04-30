@@ -2,6 +2,7 @@ package agwpe
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/n7get/go-ax25/ax25"
@@ -182,5 +183,54 @@ func TestIsMonitored(t *testing.T) {
 		if IsMonitored(k) {
 			t.Errorf("IsMonitored(%c) should be false", k)
 		}
+	}
+}
+
+func TestDecodeFrameMalformed(t *testing.T) {
+	if _, err := DecodeFrame([]byte{1, 2, 3}); err == nil {
+		t.Fatal("expected short-frame error")
+	}
+
+	hdr := make([]byte, HeaderSize)
+	binary.LittleEndian.PutUint32(hdr[28:32], MaxDataLen+1)
+	if _, err := DecodeFrame(hdr); err == nil {
+		t.Fatal("expected oversized data_len error")
+	}
+
+	hdr2 := make([]byte, HeaderSize)
+	binary.LittleEndian.PutUint32(hdr2[28:32], 5)
+	truncated := append(hdr2, []byte{1, 2, 3}...)
+	if _, err := DecodeFrame(truncated); err == nil {
+		t.Fatal("expected truncated-frame error")
+	}
+}
+
+func TestParseOutstandingResp(t *testing.T) {
+	f := BuildOutstandingPort(1, 7)
+	count, err := ParseOutstandingResp(&f)
+	if err != nil {
+		t.Fatalf("ParseOutstandingResp: %v", err)
+	}
+	if count != 7 {
+		t.Fatalf("count: got %d, want 7", count)
+	}
+
+	if _, err := ParseOutstandingResp(&Frame{Kind: KindVersionResp}); err == nil {
+		t.Fatal("expected wrong-kind error")
+	}
+	if _, err := ParseOutstandingResp(&Frame{Kind: KindOutstandingResp, Data: []byte{1, 2, 3}}); err == nil {
+		t.Fatal("expected short-data error")
+	}
+}
+
+func TestToAX25Errors(t *testing.T) {
+	if _, err := ToAX25(nil); err == nil {
+		t.Fatal("expected nil-frame error")
+	}
+	if _, err := ToAX25(&Frame{Kind: KindSendData}); err == nil {
+		t.Fatal("expected wrong-kind error")
+	}
+	if _, err := ToAX25(&Frame{Kind: KindRecvRaw, Data: []byte{0x00}}); err == nil {
+		t.Fatal("expected short-data error")
 	}
 }

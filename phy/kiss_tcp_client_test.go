@@ -155,6 +155,21 @@ func TestKISSTCPClientPHY_TXQueueFull(t *testing.T) {
 		t.Errorf("expected ErrTXQueueFull, got %v", err)
 	}
 }
+
+func TestKISSTCPClientPHY_SendNilFrame(t *testing.T) {
+	p, err := phy.NewKISSTCPClientPHY(phy.KISSTCPClientConfig{
+		Host:      "127.0.0.1",
+		Port:      19999,
+		OnRxFrame: func(*ax25.Frame) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Send(nil); err == nil {
+		t.Fatal("expected error for nil frame")
+	}
+}
+
 func TestNewKISSTCPClientConfigFromConfig_Defaults(t *testing.T) {
 	cfg := ax25.NewConfig(nil)
 	c := phy.NewKISSTCPClientConfigFromConfig(cfg)
@@ -182,5 +197,18 @@ func TestNewKISSTCPClientConfigFromConfig_Override(t *testing.T) {
 	}
 	if c.Port != 8200 {
 		t.Errorf("Port: got %d, want 8200", c.Port)
+	}
+}
+
+func TestNewKISSTCPClientConfigFromConfig_OverrideBuffers(t *testing.T) {
+	cfg := ax25.NewConfig(nil)
+	cfg.Set(ax25.KeyKissClientTxQueueDepth, "32")
+	cfg.Set(ax25.KeyKissClientReadBuf, "16384")
+	c := phy.NewKISSTCPClientConfigFromConfig(cfg)
+	if c.TXQueueDepth != 32 {
+		t.Errorf("TXQueueDepth: got %d, want 32", c.TXQueueDepth)
+	}
+	if c.ReadBufSize != 16384 {
+		t.Errorf("ReadBufSize: got %d, want 16384", c.ReadBufSize)
 	}
 }

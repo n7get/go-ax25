@@ -4,6 +4,7 @@
 package ax25
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -97,6 +98,28 @@ func TestAddressEqual(t *testing.T) {
 	}
 	if a.Equal(c) {
 		t.Error("Equal: different SSID should not match")
+	}
+}
+
+func TestParseAddress_BoundaryLengths(t *testing.T) {
+	if _, err := ParseAddress("A"); err != nil {
+		t.Fatalf("ParseAddress shortest callsign: %v", err)
+	}
+
+	if _, err := ParseAddress("ABC123"); err != nil {
+		t.Fatalf("ParseAddress max-length callsign: %v", err)
+	}
+}
+
+func TestDecodeAddress_ShortData(t *testing.T) {
+	for n := 0; n < AddressLen; n++ {
+		_, err := DecodeAddress(make([]byte, n))
+		if err == nil {
+			t.Fatalf("DecodeAddress len=%d: expected error", n)
+		}
+		if !errors.Is(err, ErrShortAddressData) {
+			t.Fatalf("DecodeAddress len=%d: got %v, want %v", n, err, ErrShortAddressData)
+		}
 	}
 }
 

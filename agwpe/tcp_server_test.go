@@ -10,7 +10,7 @@ import (
 )
 
 func TestTCPServerStartStop(t *testing.T) {
-	router := ax25.NewRouter()
+	router := ax25.NewRouter(nil)
 	srv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr:         "127.0.0.1:0",
 		ServerConfig: agwpe.ServerConfig{Port: 0},
@@ -22,7 +22,7 @@ func TestTCPServerStartStop(t *testing.T) {
 }
 
 func TestTCPServerClientConnect(t *testing.T) {
-	router := ax25.NewRouter()
+	router := ax25.NewRouter(nil)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestTCPServerClientConnect(t *testing.T) {
 }
 
 func TestTCPServerInvalidAddr(t *testing.T) {
-	router := ax25.NewRouter()
+	router := ax25.NewRouter(nil)
 	srv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr:         "256.256.256.256:99999",
 		ServerConfig: agwpe.ServerConfig{Port: 0},

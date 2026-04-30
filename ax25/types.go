@@ -73,14 +73,6 @@ func (t FrameType) String() string {
 	}
 }
 
-// IOMode selects the framing used on a physical link.
-type IOMode int
-
-const (
-	IOModeKISS IOMode = iota
-	IOModeRaw
-)
-
 // ---------------------------------------------------------------------------
 // Core structures
 // ---------------------------------------------------------------------------

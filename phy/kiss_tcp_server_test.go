@@ -103,6 +103,55 @@ func TestKISSTCPServerPHY_ServerSendsFrame(t *testing.T) {
 	if err != nil || n == 0 {
 		t.Fatalf("client read: n=%d err=%v", n, err)
 	}
+	if srvConn.RemoteAddr() == nil {
+		t.Fatal("RemoteAddr() should not be nil")
+	}
+	if err := srvConn.Send(nil); err == nil {
+		t.Fatal("expected error for nil frame")
+	}
+}
+
+func TestKISSTCPServerPHY_DisconnectCallback(t *testing.T) {
+	connectedCh := make(chan *phy.KISSTCPServerConn, 1)
+	disconnectedCh := make(chan *phy.KISSTCPServerConn, 1)
+	port := freePort(t)
+
+	srv, err := phy.NewKISSTCPServerPHY(phy.KISSTCPServerConfig{
+		Port:           port,
+		OnConnected:    func(c *phy.KISSTCPServerConn) { connectedCh <- c },
+		OnDisconnected: func(c *phy.KISSTCPServerConn) { disconnectedCh <- c },
+		OnRxFrame:      func(_ *phy.KISSTCPServerConn, _ *ax25.Frame) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop()
+
+	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var connected *phy.KISSTCPServerConn
+	select {
+	case connected = <-connectedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for OnConnected")
+	}
+
+	_ = conn.Close()
+
+	select {
+	case disconnected := <-disconnectedCh:
+		if disconnected != connected {
+			t.Fatal("OnDisconnected should reference same connection object")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for OnDisconnected")
+	}
 }
 
 func TestKISSTCPServerPHY_InvalidConfig(t *testing.T) {
