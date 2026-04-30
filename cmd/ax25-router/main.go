@@ -1,8 +1,9 @@
-// ax25-router — combines a KISS TCP server and an AGWPE TCP server, both
-// bridged to a single serial KISS TNC.
+// ax25-router — combines a KISS TCP server and an AGWPE TCP server, bridged
+// to a configurable uplink PHY.
 //
 // Architecture:
-//   - Serial KISS PHY registered as the DEFAULT router port
+//   - One optional DEFAULT port: either a serial KISS PHY or a KISS TCP client
+//     (mutually exclusive; both disabled by default)
 //   - TCP KISS server: each accepted client gets a DYNAMIC router port
 //   - AGWPE TCP server: connected to the same router
 //   - The router forwards frames between all ports
@@ -160,9 +161,20 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Uplink PHY selection (mutually exclusive)
+	kissSerialEnabled := cfg.GetBool(ax25.KeyKissSerialEnabled)
+	kissClientEnabled := cfg.GetBool(ax25.KeyKissClientEnabled)
+	if kissSerialEnabled && kissClientEnabled {
+		log.Fatal("config error: kiss.serial.enabled and kiss.client.enabled cannot both be true")
+	}
+
 	// Serial KISS TNC
 	serialDevice := cfg.GetStr(ax25.KeyKissSerialDevice)
 	serialBaud := cfg.GetInt(ax25.KeyKissSerialBaud)
+
+	// KISS TCP client
+	kissClientHost := cfg.GetStr(ax25.KeyKissClientHost)
+	kissClientPort := cfg.GetInt(ax25.KeyKissClientPort)
 
 	// TCP KISS server
 	kissServerEnabled := cfg.GetBool(ax25.KeyKissServerEnabled)
@@ -174,66 +186,104 @@ func main() {
 	agwpePort := cfg.GetInt(ax25.KeyAgwpeServerPort)
 
 	slog.Info("ax25-router starting",
-		"serial", serialDevice,
-		"baud", serialBaud,
-		"kiss_server", kissListenAddr,
-		"kiss_enabled", kissServerEnabled,
-		"agwpe_port", agwpePort,
+		"serial_enabled", kissSerialEnabled,
+		"serial_device", serialDevice,
+		"serial_baud", serialBaud,
+		"kiss_client_enabled", kissClientEnabled,
+		"kiss_client_host", kissClientHost,
+		"kiss_client_port", kissClientPort,
+		"kiss_server_enabled", kissServerEnabled,
+		"kiss_server_addr", kissListenAddr,
 		"agwpe_enabled", agwpeEnabled,
+		"agwpe_port", agwpePort,
 	)
 
-	// ── serial PHY ──
-	sp, err := serial.Open(serialDevice, &serial.Mode{BaudRate: serialBaud})
-	if err != nil {
-		log.Fatalf("open serial port %s: %v", serialDevice, err)
-	}
-	defer sp.Close()
-
-	kissCfg := phy.NewKISSSerialConfigFromConfig(cfg)
-	kissCfg.Port = sp
-	serialPHY, err := phy.NewKISSSerialPHY(kissCfg)
-	if err != nil {
-		log.Fatalf("create serial PHY: %v", err)
-	}
-
 	// ── router ──
-	router := ax25.NewRouter()
-
-	serialPort := &ax25.Port{
-		Mode: ax25.PortModeDefault,
-		OnRxFrame: func(f *ax25.Frame) {
-			slog.Debug("serial tx", "frame", f)
-			if err := serialPHY.SendFrame(f); err != nil {
-				log.Printf("serial send: %v", err)
-			}
-		},
-	}
-	if err := router.RegisterPort(serialPort); err != nil {
-		log.Fatalf("register serial port: %v", err)
-	}
+	router := ax25.NewRouter(ax25.RouterModeFromConfig(cfg))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := serialPHY.Start(ctx); err != nil {
-		log.Fatalf("start serial PHY: %v", err)
-	}
-	defer serialPHY.Stop()
+	// ── serial KISS PHY (optional default port) ──
+	if kissSerialEnabled {
+		sp, err := serial.Open(serialDevice, &serial.Mode{BaudRate: serialBaud})
+		if err != nil {
+			log.Fatalf("open serial port %s: %v", serialDevice, err)
+		}
+		defer sp.Close()
 
-	go func() {
-		for f := range serialPHY.RxFrames() {
-			slog.Debug("serial rx", "frame", f)
-			if err := router.Send(f, serialPort); err != nil {
-				log.Printf("router rx: %v", err)
+		kissCfg := phy.NewKISSSerialConfigFromConfig(cfg)
+		kissCfg.Port = sp
+		serialPHY, err := phy.NewKISSSerialPHY(kissCfg)
+		if err != nil {
+			log.Fatalf("create serial PHY: %v", err)
+		}
+
+		serialPort := &ax25.Port{
+			Mode: ax25.PortModeDefault,
+			OnRxFrame: func(f *ax25.Frame) {
+				slog.Debug("serial tx", "frame", f)
+				if err := serialPHY.SendFrame(f); err != nil {
+					log.Printf("serial send: %v", err)
+				}
+			},
+		}
+		if err := router.RegisterPort(serialPort); err != nil {
+			log.Fatalf("register serial port: %v", err)
+		}
+
+		if err := serialPHY.Start(ctx); err != nil {
+			log.Fatalf("start serial PHY: %v", err)
+		}
+		defer serialPHY.Stop()
+
+		go func() {
+			for f := range serialPHY.RxFrames() {
+				slog.Debug("serial rx", "frame", f)
+				if err := router.Send(f, serialPort); err != nil {
+					log.Printf("router rx: %v", err)
+				}
+			}
+		}()
+		slog.Info("serial KISS PHY started", "device", serialDevice, "baud", serialBaud)
+	}
+
+	// ── KISS TCP client PHY (optional default port) ──
+	if kissClientEnabled {
+		tcpClientPort := &ax25.Port{Mode: ax25.PortModeDefault}
+
+		kissClientCfg := phy.NewKISSTCPClientConfigFromConfig(cfg)
+		kissClientCfg.OnRxFrame = func(f *ax25.Frame) {
+			if err := router.Send(f, tcpClientPort); err != nil {
+				log.Printf("kiss client rx: %v", err)
 			}
 		}
-	}()
-	slog.Info("serial KISS PHY started", "device", serialDevice, "baud", serialBaud)
+
+		tcpPHY, err := phy.NewKISSTCPClientPHY(kissClientCfg)
+		if err != nil {
+			log.Fatalf("create KISS TCP client PHY: %v", err)
+		}
+
+		tcpClientPort.OnRxFrame = func(f *ax25.Frame) {
+			if err := tcpPHY.Send(f); err != nil {
+				log.Printf("kiss client tx: %v", err)
+			}
+		}
+
+		if err := router.RegisterPort(tcpClientPort); err != nil {
+			log.Fatalf("register KISS TCP client port: %v", err)
+		}
+
+		tcpPHY.Start()
+		defer tcpPHY.Stop()
+		slog.Info("KISS TCP client PHY started", "host", kissClientHost, "port", kissClientPort)
+	}
 
 	// ── TCP KISS server ──
 	var kissListener net.Listener
 	var pool *tcpPool
 	if kissServerEnabled {
+		var err error
 		kissListener, err = net.Listen("tcp", kissListenAddr)
 		if err != nil {
 			log.Fatalf("listen KISS TCP %s: %v", kissListenAddr, err)
