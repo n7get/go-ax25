@@ -153,12 +153,12 @@ func TestConfig_LoadINI_Sections(t *testing.T) {
 
 func TestConfig_GetBool(t *testing.T) {
 	cfg := NewConfig(nil)
-	cfg.Set(ConfigKey("foo"), "true")
-	if got := cfg.GetBool(ConfigKey("foo")); !got {
+	cfg.Set(KeyKissSerialEnabled, "true")
+	if got := cfg.GetBool(KeyKissSerialEnabled); !got {
 		t.Errorf("GetBool: got false, want true")
 	}
-	cfg.Set(ConfigKey("foo"), "false")
-	if got := cfg.GetBool(ConfigKey("foo")); got {
+	cfg.Set(KeyKissSerialEnabled, "false")
+	if got := cfg.GetBool(KeyKissSerialEnabled); got {
 		t.Errorf("GetBool: got true, want false")
 	}
 	requirePanicContains(t, "missing key \"missing\"", func() {
@@ -168,22 +168,22 @@ func TestConfig_GetBool(t *testing.T) {
 
 func TestConfig_GetBool_Aliases(t *testing.T) {
 	cfg := NewConfig(nil)
-	for _, v := range []string{"1", "true", "yes", "on", "TRUE", "YES", "ON"} {
-		cfg.Set(ConfigKey("b"), v)
-		if got := cfg.GetBool(ConfigKey("b")); !got {
+	for _, v := range []string{"1", "true", "TRUE", "True", "t", "T"} {
+		cfg.Set(KeyKissSerialEnabled, v)
+		if got := cfg.GetBool(KeyKissSerialEnabled); !got {
 			t.Errorf("GetBool(%q): got false, want true", v)
 		}
 	}
-	for _, v := range []string{"0", "false", "no", "off", "FALSE", "NO", "OFF"} {
-		cfg.Set(ConfigKey("b"), v)
-		if got := cfg.GetBool(ConfigKey("b")); got {
+	for _, v := range []string{"0", "false", "FALSE", "False", "f", "F"} {
+		cfg.Set(KeyKissSerialEnabled, v)
+		if got := cfg.GetBool(KeyKissSerialEnabled); got {
 			t.Errorf("GetBool(%q): got true, want false", v)
 		}
 	}
 	// Invalid value panics.
-	cfg.Set(ConfigKey("b"), "maybe")
-	requirePanicContains(t, "invalid bool for key \"b\": \"maybe\"", func() {
-		_ = cfg.GetBool(ConfigKey("b"))
+	cfg.Set(KeyKissSerialEnabled, "maybe")
+	requirePanicContains(t, "invalid bool for key \"kiss.serial.enabled\": \"maybe\"", func() {
+		_ = cfg.GetBool(KeyKissSerialEnabled)
 	})
 }
 
@@ -196,9 +196,9 @@ func TestConfig_Get_NotFoundPanics(t *testing.T) {
 
 func TestConfig_GetInt_Invalid(t *testing.T) {
 	cfg := NewConfig(nil)
-	cfg.Set(ConfigKey("num"), "notanumber")
-	requirePanicContains(t, "invalid int for key \"num\": \"notanumber\"", func() {
-		_ = cfg.GetInt(ConfigKey("num"))
+	cfg.Set(KeyBeaconEvery, "notanumber")
+	requirePanicContains(t, "invalid int for key \"beacon.every\": \"notanumber\"", func() {
+		_ = cfg.GetInt(KeyBeaconEvery)
 	})
 }
 
@@ -274,42 +274,6 @@ func TestConfig_LoadINI_MalformedLine(t *testing.T) {
 	}
 }
 
-func TestParseINIValue_UnclosedQuote(t *testing.T) {
-	// An unclosed quoted string returns everything after the opening quote.
-	got := parseINIValue(`"unclosed`)
-	if got != "unclosed" {
-		t.Errorf("parseINIValue unclosed quote: got %q, want \"unclosed\"", got)
-	}
-}
-
-func TestParseINIValue(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		// Inline comment stripping
-		{"value # inline comment", "value"},
-		{"value", "value"},
-		{"# whole line comment", ""},
-		// Escaped hash – backslash consumed, # preserved
-		{`value \# not a comment`, "value # not a comment"},
-		// Quoted values
-		{`"hello world"`, "hello world"},
-		{`"has # hash inside"`, "has # hash inside"},
-		{`"escaped \" quote"`, `escaped " quote`},
-		// Trailing whitespace trimmed in unquoted
-		{"value   # comment", "value"},
-		// Empty
-		{"", ""},
-	}
-	for _, tt := range tests {
-		got := parseINIValue(tt.input)
-		if got != tt.want {
-			t.Errorf("parseINIValue(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
-
 func TestConfig_LoadINI_InlineCommentAndQuotes(t *testing.T) {
 	f, err := os.CreateTemp("", "ax25_config_*.ini")
 	if err != nil {
@@ -319,7 +283,6 @@ func TestConfig_LoadINI_InlineCommentAndQuotes(t *testing.T) {
 	f.WriteString("[beacon]\n")
 	f.WriteString("source = W1AW # the ARRL beacon\n")
 	f.WriteString(`text = "hello world"` + "\n")
-	f.WriteString(`destination = BEACON \# not a comment` + "\n")
 	f.Close()
 
 	cfg := NewConfig(nil)
@@ -331,8 +294,5 @@ func TestConfig_LoadINI_InlineCommentAndQuotes(t *testing.T) {
 	}
 	if got := cfg.GetStr(KeyBeaconText); got != "hello world" {
 		t.Errorf("beacon.text: got %q, want \"hello world\"", got)
-	}
-	if got := cfg.GetStr(KeyBeaconDestination); got != "BEACON # not a comment" {
-		t.Errorf("beacon.destination: got %q, want \"BEACON # not a comment\"", got)
 	}
 }

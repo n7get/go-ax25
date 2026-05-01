@@ -9,13 +9,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 
+	"github.com/spf13/viper"
 	ini "gopkg.in/ini.v1"
 )
 
 // ---------------------------------------------------------------------------
-// Config — INI-file backed runtime configuration
+// Config — viper-backed runtime configuration with INI file + env var support
 // ---------------------------------------------------------------------------
 
 // ConfigKey is a type-safe configuration key.
@@ -29,11 +29,12 @@ type ConfigParam struct {
 	Description  string
 }
 
-// Config holds the runtime configuration loaded from an INI file.
+// Config holds the runtime configuration. Values are resolved in priority order:
+// explicit Set call > environment variable (GOAX25_* prefix) > INI file > schema default.
 type Config struct {
-	mu     sync.RWMutex
-	values map[ConfigKey]string
-	schema []ConfigParam
+	v         *viper.Viper
+	knownKeys map[ConfigKey]bool
+	schema    []ConfigParam
 }
 
 var (
@@ -181,17 +182,27 @@ var DefaultSchema = []ConfigParam{
 }
 
 // NewConfig creates a Config with the given schema (merged with DefaultSchema).
+// Environment variables with the GOAX25_ prefix override config file and default values.
+// Dots in config keys are replaced with underscores in env var names, e.g.
+// beacon.source → GOAX25_BEACON_SOURCE.
 func NewConfig(extra []ConfigParam) *Config {
-	c := &Config{
-		values: make(map[ConfigKey]string),
+	codecReg := viper.NewCodecRegistry()
+	_ = codecReg.RegisterCodec("ini", iniCodec{})
+	v := viper.NewWithOptions(viper.WithCodecRegistry(codecReg))
+	v.SetEnvPrefix("GOAX25")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	schema := make([]ConfigParam, 0, len(DefaultSchema)+len(extra))
+	schema = append(schema, DefaultSchema...)
+	schema = append(schema, extra...)
+
+	knownKeys := make(map[ConfigKey]bool, len(schema))
+	for _, p := range schema {
+		v.SetDefault(string(p.Key), p.DefaultValue)
+		knownKeys[p.Key] = true
 	}
-	c.schema = append(c.schema, DefaultSchema...)
-	c.schema = append(c.schema, extra...)
-	// Seed defaults.
-	for _, p := range c.schema {
-		c.values[p.Key] = p.DefaultValue
-	}
-	return c
+	return &Config{v: v, knownKeys: knownKeys, schema: schema}
 }
 
 // LoadINI reads key=value pairs from an INI file, ignoring comments and blanks.
@@ -204,96 +215,73 @@ func (c *Config) LoadINI(path string) error {
 		return fmt.Errorf("ax25: config: stat %q: %w", path, err)
 	}
 
-	file, err := ini.LoadSources(ini.LoadOptions{
-		SkipUnrecognizableLines: true,
-		IgnoreInlineComment:     true,
-	}, path)
-	if err != nil {
+	c.v.SetConfigFile(path)
+	c.v.SetConfigType("ini")
+	if err := c.v.ReadInConfig(); err != nil {
 		return fmt.Errorf("ax25: config: parse %q: %w", path, err)
 	}
+	return nil
+}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// iniCodec is a viper Codec that reads INI files using gopkg.in/ini.v1.
+// It is registered as the "ini" decoder when each Config is created.
+type iniCodec struct{}
 
-	for _, section := range file.Sections() {
+func (iniCodec) Decode(b []byte, m map[string]any) error {
+	f, err := ini.LoadSources(ini.LoadOptions{
+		SkipUnrecognizableLines: true,
+	}, b)
+	if err != nil {
+		return err
+	}
+	for _, section := range f.Sections() {
 		sectionName := section.Name()
 		for _, key := range section.Keys() {
-			cfgKeyStr := key.Name()
-			if sectionName != ini.DefaultSection {
-				cfgKeyStr = sectionName + "." + cfgKeyStr
+			var fullKey string
+			if sectionName == ini.DefaultSection {
+				fullKey = key.Name()
+			} else {
+				fullKey = sectionName + "." + key.Name()
 			}
-			// Keep compatibility with previous parser behavior for inline comments,
-			// escaping, and quoted strings.
-			c.values[ConfigKey(cfgKeyStr)] = parseINIValue(strings.TrimSpace(key.Value()))
+			iniDeepSet(m, strings.Split(fullKey, "."), key.Value())
 		}
 	}
 	return nil
 }
 
-// parseINIValue strips an inline # comment (unless escaped with \) and
-// unwraps a double-quoted value. Inside quotes, \" is treated as a literal
-// quote character. Outside quotes, \# is treated as a literal # (backslash
-// consumed).
-func parseINIValue(raw string) string {
-	if len(raw) == 0 {
-		return raw
-	}
-	// Quoted value.
-	if raw[0] == '"' {
-		var buf strings.Builder
-		i := 1
-		for i < len(raw) {
-			ch := raw[i]
-			if ch == '\\' && i+1 < len(raw) && raw[i+1] == '"' {
-				buf.WriteByte('"')
-				i += 2
-				continue
-			}
-			if ch == '"' {
-				break // closing quote
-			}
-			buf.WriteByte(ch)
-			i++
-		}
-		return buf.String()
-	}
-	// Unquoted value: scan for unescaped #.
-	var buf strings.Builder
-	for i := 0; i < len(raw); i++ {
-		ch := raw[i]
-		if ch == '\\' && i+1 < len(raw) && raw[i+1] == '#' {
-			buf.WriteByte('#')
-			i++
-			continue
-		}
-		if ch == '#' {
-			break // inline comment
-		}
-		buf.WriteByte(ch)
-	}
-	return strings.TrimRight(buf.String(), " \t")
+func (iniCodec) Encode(v map[string]any) ([]byte, error) {
+	return nil, errors.New("ax25: ini encoding not supported")
 }
 
-// Get returns the string value for key.
-// It panics if the key is not present.
-func (c *Config) Get(key ConfigKey) string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	v, ok := c.values[key]
+// iniDeepSet stores value at the nested path within m.
+func iniDeepSet(m map[string]any, path []string, value string) {
+	if len(path) == 1 {
+		m[path[0]] = value
+		return
+	}
+	next, ok := m[path[0]].(map[string]any)
 	if !ok {
+		next = make(map[string]any)
+		m[path[0]] = next
+	}
+	iniDeepSet(next, path[1:], value)
+}
+
+// Get returns the string value for key, panicking if the key is not in the schema.
+func (c *Config) Get(key ConfigKey) string {
+	if !c.knownKeys[key] {
 		panic(fmt.Sprintf("ax25: config: missing key %q", key))
 	}
-	return v
+	return c.v.GetString(string(key))
 }
 
-// GetStr returns the string value for key.
-// It panics if the key is not present.
+// GetStr returns the string value for key, panicking if the key is not in the schema.
 func (c *Config) GetStr(key ConfigKey) string {
 	return c.Get(key)
 }
 
-// GetInt returns the integer value for key.
-// It panics if the key is not present or if conversion fails.
+// GetInt returns the integer value for key, panicking if the key is not in the schema
+// or if the value cannot be converted to int.
 func (c *Config) GetInt(key ConfigKey) int {
 	v := c.Get(key)
 	n, err := strconv.Atoi(v)
@@ -303,22 +291,20 @@ func (c *Config) GetInt(key ConfigKey) int {
 	return n
 }
 
-// GetBool returns the boolean value for key.
-// It panics if the key is not present or if conversion fails.
+// GetBool returns the boolean value for key using strconv.ParseBool semantics
+// (accepts 1/0/t/f/T/F/TRUE/FALSE/true/false/True/False).
+// It panics if the key is not in the schema or if the value is not a valid bool.
 func (c *Config) GetBool(key ConfigKey) bool {
 	v := c.Get(key)
-	switch strings.ToLower(v) {
-	case "1", "true", "yes", "on":
-		return true
-	case "0", "false", "no", "off":
-		return false
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		panic(fmt.Sprintf("ax25: config: invalid bool for key %q: %q", key, v))
 	}
-	panic(fmt.Sprintf("ax25: config: invalid bool for key %q: %q", key, v))
+	return b
 }
 
-// Set updates a key at runtime (not persisted).
+// Set overrides a key at runtime (not persisted). Takes effect immediately
+// at the highest viper priority, overriding env vars and config file values.
 func (c *Config) Set(key ConfigKey, value string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.values[key] = value
+	c.v.Set(string(key), value)
 }
