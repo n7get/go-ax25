@@ -45,6 +45,7 @@ func (c *KISSTCPServerConn) RemoteAddr() net.Addr { return c.conn.RemoteAddr() }
 // KISSTCPServerConfig holds configuration for KISSTCPServerPHY.
 type KISSTCPServerConfig struct {
 	Port           uint16
+	Promiscuous    bool
 	TXQueueDepth   int
 	ReadBufSize    int
 	OnConnected    func(conn *KISSTCPServerConn)
@@ -57,6 +58,7 @@ type KISSTCPServerConfig struct {
 func NewKISSTCPServerConfigFromConfig(cfg *ax25.Config) KISSTCPServerConfig {
 	return KISSTCPServerConfig{
 		Port:         uint16(cfg.GetInt(ax25.KeyKissServerPort)),
+		Promiscuous:  cfg.GetBool(ax25.KeyKissServerPromiscuous),
 		TXQueueDepth: cfg.GetInt(ax25.KeyKissServerTxQueueDepth),
 		ReadBufSize:  cfg.GetInt(ax25.KeyKissServerReadBuf),
 	}

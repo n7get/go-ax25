@@ -86,6 +86,7 @@ const (
 	KeyKissServerEnabled      ConfigKey = "kiss.server.enabled"
 	KeyKissServerMaxClients   ConfigKey = "kiss.server.max_clients"
 	KeyKissServerPort         ConfigKey = "kiss.server.port"
+	KeyKissServerPromiscuous  ConfigKey = "kiss.server.promiscuous"
 	KeyKissServerReadBuf      ConfigKey = "kiss.server.read_buf"
 	KeyKissServerTxQueueDepth ConfigKey = "kiss.server.tx_queue_depth"
 
@@ -103,7 +104,7 @@ var allConfigKeys = []ConfigKey{
 	KeyDigiCallsign,
 	KeyKissClientEnabled, KeyKissClientHost, KeyKissClientPort, KeyKissClientReadBuf, KeyKissClientTxQueueDepth,
 	KeyKissSerialEnabled, KeyKissSerialBaud, KeyKissSerialDevice, KeyKissSerialReadBuf, KeyKissSerialRxQueueDepth, KeyKissSerialTxQueueDepth,
-	KeyKissServerAddr, KeyKissServerEnabled, KeyKissServerMaxClients, KeyKissServerPort, KeyKissServerReadBuf, KeyKissServerTxQueueDepth,
+	KeyKissServerAddr, KeyKissServerEnabled, KeyKissServerMaxClients, KeyKissServerPort, KeyKissServerPromiscuous, KeyKissServerReadBuf, KeyKissServerTxQueueDepth,
 	KeyRouterMode, KeyRouterPortQueueDepth,
 	KeyTerminalCallsign,
 }
@@ -176,6 +177,7 @@ var DefaultSchema = []ConfigParam{
 	{Key: KeyKissServerAddr, DefaultValue: ":8100", Description: "KISS TCP server listen address"},
 	{Key: KeyKissServerEnabled, DefaultValue: "true", Description: "Enable KISS TCP server"},
 	{Key: KeyKissServerMaxClients, DefaultValue: "8", Description: "KISS TCP server max simultaneous clients"},
+	{Key: KeyKissServerPromiscuous, DefaultValue: "false", Description: "Register KISS TCP server client ports as promiscuous (unsupported in bridge mode)"},
 	{Key: KeyKissServerReadBuf, DefaultValue: "4096", Description: "KISS TCP server rx read buffer size per client (bytes)"},
 	{Key: KeyKissServerTxQueueDepth, DefaultValue: "8", Description: "KISS TCP server TX channel depth per client"},
 }

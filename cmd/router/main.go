@@ -4,7 +4,8 @@
 // Architecture:
 //   - One optional DEFAULT port: either a serial KISS PHY or a KISS TCP client
 //     (mutually exclusive; both disabled by default)
-//   - TCP KISS server: each accepted client gets a DYNAMIC router port
+//   - TCP KISS server: each accepted client gets a DYNAMIC router port by
+//     default, or PROMISCUOUS when kiss.server.promiscuous=true
 //   - AGWPE TCP server: connected to the same router
 //   - The router forwards frames between all ports
 //
@@ -44,13 +45,15 @@ type tcpPool struct {
 	clients map[net.Conn]*tcpClient
 	router  *ax25.Router
 	maxConn int
+	mode    ax25.PortMode
 }
 
-func newTCPPool(router *ax25.Router, maxConn int) *tcpPool {
+func newTCPPool(router *ax25.Router, maxConn int, mode ax25.PortMode) *tcpPool {
 	return &tcpPool{
 		clients: make(map[net.Conn]*tcpClient),
 		router:  router,
 		maxConn: maxConn,
+		mode:    mode,
 	}
 }
 
@@ -66,7 +69,7 @@ func (p *tcpPool) add(conn net.Conn) error {
 	kissPHY := ax25.NewKISSSerialPHY(conn, ax25.KISSSerialPHYConfig{})
 
 	port := &ax25.Port{
-		Mode: ax25.PortModeDynamic,
+		Mode: p.mode,
 		OnRxFrame: func(frame *ax25.Frame) {
 			if err := kissPHY.SendFrame(frame); err != nil {
 				slog.Error("KISS TCP: send error", "err", err)
@@ -76,7 +79,7 @@ func (p *tcpPool) add(conn net.Conn) error {
 
 	if err := p.router.RegisterPort(port); err != nil {
 		conn.Close()
-		return fmt.Errorf("register dynamic port: %w", err)
+		return fmt.Errorf("register KISS TCP server port: %w", err)
 	}
 
 	client := &tcpClient{conn: conn, port: port, phy: kissPHY}
@@ -180,6 +183,12 @@ func main() {
 	kissServerEnabled := cfg.GetBool(ax25.KeyKissServerEnabled)
 	kissListenAddr := cfg.GetStr(ax25.KeyKissServerAddr)
 	kissMaxClients := cfg.GetInt(ax25.KeyKissServerMaxClients)
+	kissServerPromiscuous := cfg.GetBool(ax25.KeyKissServerPromiscuous)
+
+	routerMode := ax25.RouterModeFromConfig(cfg)
+	if kissServerEnabled && kissServerPromiscuous && *routerMode == ax25.RouterModeBridge {
+		log.Fatal("config error: kiss.server.promiscuous is not supported in bridge mode")
+	}
 
 	// AGWPE TCP server
 	agwpeEnabled := cfg.GetBool(ax25.KeyAgwpeServerEnabled)
@@ -194,12 +203,13 @@ func main() {
 		"kiss_client_port", kissClientPort,
 		"kiss_server_enabled", kissServerEnabled,
 		"kiss_server_addr", kissListenAddr,
+		"kiss_server_promiscuous", kissServerPromiscuous,
 		"agwpe_enabled", agwpeEnabled,
 		"agwpe_port", agwpePort,
 	)
 
 	// ── router ──
-	router := ax25.NewRouter(ax25.RouterModeFromConfig(cfg))
+	router := ax25.NewRouter(routerMode)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -288,9 +298,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("listen KISS TCP %s: %v", kissListenAddr, err)
 		}
-		pool = newTCPPool(router, kissMaxClients)
+		kissServerPortMode := ax25.PortModeDynamic
+		if kissServerPromiscuous {
+			kissServerPortMode = ax25.PortModePromiscuous
+		}
+		pool = newTCPPool(router, kissMaxClients, kissServerPortMode)
 		go serveTCPKISS(kissListener, pool)
-		slog.Info("KISS TCP server listening", "addr", kissListenAddr, "max_clients", kissMaxClients)
+		slog.Info("KISS TCP server listening", "addr", kissListenAddr, "max_clients", kissMaxClients, "promiscuous", kissServerPromiscuous)
 	}
 
 	// ── AGWPE server ──

@@ -170,6 +170,9 @@ func TestNewKISSTCPServerConfigFromConfig_Defaults(t *testing.T) {
 	if c.Port != 8100 {
 		t.Errorf("Port: got %d, want 8100", c.Port)
 	}
+	if c.Promiscuous {
+		t.Errorf("Promiscuous: got true, want false")
+	}
 	if c.TXQueueDepth != 8 {
 		t.Errorf("TXQueueDepth: got %d, want 8", c.TXQueueDepth)
 	}
@@ -181,10 +184,14 @@ func TestNewKISSTCPServerConfigFromConfig_Defaults(t *testing.T) {
 func TestNewKISSTCPServerConfigFromConfig_Override(t *testing.T) {
 	cfg := ax25.NewConfig(nil)
 	cfg.Set("kiss.server.port", "9200")
+	cfg.Set("kiss.server.promiscuous", "true")
 	cfg.Set("kiss.server.tx_queue_depth", "32")
 	c := phy.NewKISSTCPServerConfigFromConfig(cfg)
 	if c.Port != 9200 {
 		t.Errorf("Port: got %d, want 9200", c.Port)
+	}
+	if !c.Promiscuous {
+		t.Errorf("Promiscuous: got false, want true")
 	}
 	if c.TXQueueDepth != 32 {
 		t.Errorf("TXQueueDepth: got %d, want 32", c.TXQueueDepth)
