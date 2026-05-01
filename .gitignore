@@ -29,3 +29,7 @@ __debug_bin
 *.pcap
 *.log
 local/
+
+AGENTS.md
+CONTEXT.md
+docs/
