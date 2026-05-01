@@ -1,4 +1,4 @@
-// ax25-router — combines a KISS TCP server and an AGWPE TCP server, bridged
+// router — combines a KISS TCP server and an AGWPE TCP server, bridged
 // to a configurable uplink PHY.
 //
 // Architecture:
@@ -10,7 +10,7 @@
 //
 // Usage:
 //
-//	ax25-router [-config ax25-router.ini] [-debug]
+//	router [-config ax25.ini] [-debug]
 package main
 
 import (
@@ -185,7 +185,7 @@ func main() {
 	agwpeEnabled := cfg.GetBool(ax25.KeyAgwpeServerEnabled)
 	agwpePort := cfg.GetInt(ax25.KeyAgwpeServerPort)
 
-	slog.Info("ax25-router starting",
+	slog.Info("router starting",
 		"serial_enabled", kissSerialEnabled,
 		"serial_device", serialDevice,
 		"serial_baud", serialBaud,
@@ -307,14 +307,14 @@ func main() {
 		slog.Info("AGWPE TCP server listening", "port", agwpePort)
 	}
 
-	slog.Info("ax25-router running — press Ctrl+C to stop")
+	slog.Info("router running — press Ctrl+C to stop")
 
 	// ── wait for signal ──
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
-	slog.Info("ax25-router shutting down")
+	slog.Info("router shutting down")
 	cancel()
 	if kissListener != nil {
 		kissListener.Close()

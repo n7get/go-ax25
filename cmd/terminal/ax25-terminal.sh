@@ -1,4 +1,4 @@
-#Usage of ax25-terminal:
+#Usage of terminal:
 #  -agwpe
 #    	use AGWPE interface
 #  -config string

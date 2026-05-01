@@ -91,8 +91,6 @@ const (
 
 	KeyRouterMode           ConfigKey = "router.mode"
 	KeyRouterPortQueueDepth ConfigKey = "router.port_queue_depth"
-	KeyStationCallsign      ConfigKey = "station.callsign"
-	KeyStationSsid          ConfigKey = "station.ssid"
 	KeyTerminalCallsign     ConfigKey = "terminal.callsign"
 )
 
@@ -107,7 +105,6 @@ var allConfigKeys = []ConfigKey{
 	KeyKissSerialEnabled, KeyKissSerialBaud, KeyKissSerialDevice, KeyKissSerialReadBuf, KeyKissSerialRxQueueDepth, KeyKissSerialTxQueueDepth,
 	KeyKissServerAddr, KeyKissServerEnabled, KeyKissServerMaxClients, KeyKissServerPort, KeyKissServerReadBuf, KeyKissServerTxQueueDepth,
 	KeyRouterMode, KeyRouterPortQueueDepth,
-	KeyStationCallsign, KeyStationSsid,
 	KeyTerminalCallsign,
 }
 
@@ -122,10 +119,7 @@ func AllSchemaKeys() map[ConfigKey]bool {
 
 // DefaultSchema is the built-in parameter schema.
 var DefaultSchema = []ConfigParam{
-	// Station identity
-	{Key: KeyStationCallsign, DefaultValue: "N0CALL", Description: "Station callsign"},
-	{Key: KeyStationSsid, DefaultValue: "0", Description: "Station SSID (0-15)"},
-	{Key: KeyTerminalCallsign, DefaultValue: "", Description: "Terminal local callsign override (empty = use station.callsign/ssid)"},
+	{Key: KeyTerminalCallsign, DefaultValue: "N0CALL", Description: "Terminal local callsign"},
 
 	// Beacon
 	{Key: KeyBeaconSource, DefaultValue: "", Description: "Beacon source callsign (empty = disabled)"},

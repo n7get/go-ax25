@@ -19,9 +19,9 @@ import (
 
 	"github.com/n7get/go-ax25/agwpe"
 	"github.com/n7get/go-ax25/ax25"
-	"github.com/n7get/go-ax25/cmd/ax25-bbs/bbs"
-	"github.com/n7get/go-ax25/cmd/ax25-bbs/heard"
-	"github.com/n7get/go-ax25/cmd/ax25-bbs/store"
+	"github.com/n7get/go-ax25/cmd/bbs/bbs"
+	"github.com/n7get/go-ax25/cmd/bbs/heard"
+	"github.com/n7get/go-ax25/cmd/bbs/store"
 )
 
 const (

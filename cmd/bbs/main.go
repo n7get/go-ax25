@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Robert Ambrose N7GET
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-// ax25-bbs is a packet-radio BBS that connects as an AGWPE client.
+// bbs is a packet-radio BBS that connects as an AGWPE client.
 package main
 
 import (
@@ -15,9 +15,9 @@ import (
 
 	"github.com/n7get/go-ax25/agwpe"
 	"github.com/n7get/go-ax25/ax25"
-	"github.com/n7get/go-ax25/cmd/ax25-bbs/bbs"
-	"github.com/n7get/go-ax25/cmd/ax25-bbs/heard"
-	"github.com/n7get/go-ax25/cmd/ax25-bbs/store"
+	"github.com/n7get/go-ax25/cmd/bbs/bbs"
+	"github.com/n7get/go-ax25/cmd/bbs/heard"
+	"github.com/n7get/go-ax25/cmd/bbs/store"
 )
 
 func main() {
@@ -110,7 +110,7 @@ func main() {
 
 	client.Stop()
 	mgr.DisconnectAll()
-	slog.Info("ax25-bbs stopped")
+	slog.Info("bbs stopped")
 }
 
 // handleAGWPEFrame dispatches incoming AGWPE frames to the session manager.

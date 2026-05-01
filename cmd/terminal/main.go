@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Robert Ambrose N7GET
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-// ax25-terminal is a connected-mode terminal over AGWPE, KISS TCP, or serial KISS.
+// terminal is a connected-mode terminal over AGWPE, KISS TCP, or serial KISS.
 package main
 
 import (
@@ -123,7 +123,7 @@ func main() {
 		via = append(via, a)
 	}
 
-	slog.Info("ax25-terminal starting",
+	slog.Info("terminal starting",
 		"mode", mode.String(),
 		"local", local.String(),
 		"destination", args.destination,
@@ -240,12 +240,7 @@ func resolveLocalAddress(localOverride string, cfg *ax25.Config) (ax25.Address, 
 		return ax25.ParseAddress(terminalCall)
 	}
 
-	call := strings.TrimSpace(cfg.GetStr(ax25.KeyStationCallsign))
-	ssid := cfg.GetInt(ax25.KeyStationSsid)
-	if ssid == 0 {
-		return ax25.ParseAddress(call)
-	}
-	return ax25.ParseAddress(fmt.Sprintf("%s-%d", call, ssid))
+	return ax25.Address{}, fmt.Errorf("no local callsign configured: use -local flag or set terminal.callsign in ax25.ini")
 }
 
 func connConfigFromCfg(cfg *ax25.Config) *ax25.ConnConfig {

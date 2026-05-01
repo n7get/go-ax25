@@ -8,7 +8,7 @@ Go program that can be run directly with `go run main.go`.
 ## test-agwpe
 
 Exercises the AGWPE client/server protocol against a **running external AGWPE
-server** (e.g. ax25-router). Tests version query, port info, port capabilities,
+server** (e.g. router). Tests version query, port info, port capabilities,
 heard-stations list, outstanding-frames queries, callsign registration, connect,
 data exchange, and disconnect.
 
@@ -39,7 +39,7 @@ Runs a scripted BBS command test suite against a **running external BBS** (via
 AGWPE). Connects to the BBS, exercises standard user commands (J, L, R, S, B,
 …), and optionally the sysop CONFIG path. Prints PASS/FAIL for each command.
 
-**Requires:** a running ax25-router + ax25-bbs (or equivalent).
+**Requires:** a running router + bbs (or equivalent).
 
 ```
 go run main.go -local N7GET-9 -remote N7GET-2 -agwpe 127.0.0.1:8000

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/n7get/go-ax25/cmd/ax25-bbs/store"
+	"github.com/n7get/go-ax25/cmd/bbs/store"
 )
 
 const (

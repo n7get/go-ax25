@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/n7get/go-ax25/agwpe"
-	"github.com/n7get/go-ax25/cmd/ax25-bbs/heard"
-	"github.com/n7get/go-ax25/cmd/ax25-bbs/store"
+	"github.com/n7get/go-ax25/cmd/bbs/heard"
+	"github.com/n7get/go-ax25/cmd/bbs/store"
 )
 
 // InputMode tracks what kind of input the session expects next.
