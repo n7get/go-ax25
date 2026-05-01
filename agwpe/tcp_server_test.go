@@ -15,7 +15,7 @@ func TestTCPServerStartStop(t *testing.T) {
 	router := ax25.NewRouter(nil)
 	srv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr:         "127.0.0.1:0",
-		ServerConfig: agwpe.ServerConfig{Port: 0},
+		ServerConfig: agwpe.ServerConfig{},
 	}, router)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -34,7 +34,7 @@ func TestTCPServerClientConnect(t *testing.T) {
 
 	srv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr:         addr,
-		ServerConfig: agwpe.ServerConfig{Port: 0},
+		ServerConfig: agwpe.ServerConfig{},
 	}, router)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -65,7 +65,7 @@ func TestTCPServerInvalidAddr(t *testing.T) {
 	router := ax25.NewRouter(nil)
 	srv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr:         "256.256.256.256:99999",
-		ServerConfig: agwpe.ServerConfig{Port: 0},
+		ServerConfig: agwpe.ServerConfig{},
 	}, router)
 	if err := srv.Start(); err == nil {
 		t.Fatal("expected error for invalid addr")
@@ -77,7 +77,7 @@ func TestTCPServerNegativeMaxClientsRejected(t *testing.T) {
 	srv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr:         "127.0.0.1:0",
 		MaxClients:   -1,
-		ServerConfig: agwpe.ServerConfig{Port: 0},
+		ServerConfig: agwpe.ServerConfig{},
 	}, router)
 	if err := srv.Start(); err == nil {
 		t.Fatal("expected error for negative MaxClients")
@@ -96,7 +96,7 @@ func TestTCPServerMaxClientsLimit(t *testing.T) {
 	srv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr:         addr,
 		MaxClients:   1,
-		ServerConfig: agwpe.ServerConfig{Port: 0},
+		ServerConfig: agwpe.ServerConfig{},
 	}, router)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -132,7 +132,7 @@ func TestTCPServerMaxClientsUnlimitedWhenZero(t *testing.T) {
 	srv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr:         addr,
 		MaxClients:   0,
-		ServerConfig: agwpe.ServerConfig{Port: 0},
+		ServerConfig: agwpe.ServerConfig{},
 	}, router)
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)

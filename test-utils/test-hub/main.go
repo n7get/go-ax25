@@ -204,7 +204,6 @@ func main() {
 	tcpServer := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr: *agwpeAddr,
 		ServerConfig: agwpe.ServerConfig{
-			Port:            int(port),
 			RadioPort:       testRadioPort,
 			PortDescription: "Port1 test-hub",
 			TXQueueDepth:    64,

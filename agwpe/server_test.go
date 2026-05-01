@@ -141,9 +141,6 @@ func TestFormatMonitorDescSupervisory(t *testing.T) {
 func TestNewServerConfigFromConfig_Defaults(t *testing.T) {
 	cfg := ax25.NewConfig(nil)
 	c := NewServerConfigFromConfig(cfg)
-	if c.Port != 8000 {
-		t.Errorf("Port: got %d, want 8000", c.Port)
-	}
 	if c.TXQueueDepth != 64 {
 		t.Errorf("TXQueueDepth: got %d, want 64", c.TXQueueDepth)
 	}
@@ -198,15 +195,11 @@ func TestBuildConnectViaReq_empty(t *testing.T) {
 
 func TestNewServerConfigFromConfig_Override(t *testing.T) {
 	cfg := ax25.NewConfig(nil)
-	cfg.Set(ax25.KeyAgwpeServerPort, "8300")
 	cfg.Set(ax25.KeyAgwpeServerTxQueueDepth, "16")
 	cfg.Set(ax25.KeyAgwpeServerMaxConns, "2")
 	cfg.Set(ax25.KeyAgwpeServerReadBuf, "8192")
 
 	c := NewServerConfigFromConfig(cfg)
-	if c.Port != 8300 {
-		t.Errorf("Port: got %d, want 8300", c.Port)
-	}
 	if c.TXQueueDepth != 16 {
 		t.Errorf("TXQueueDepth: got %d, want 16", c.TXQueueDepth)
 	}

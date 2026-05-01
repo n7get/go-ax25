@@ -206,7 +206,7 @@ func main() {
 
 	// AGWPE TCP server
 	agwpeEnabled := cfg.GetBool(ax25.KeyAgwpeServerEnabled)
-	agwpePort := cfg.GetInt(ax25.KeyAgwpeServerPort)
+	agwpeAddr := cfg.GetStr(ax25.KeyAgwpeServerAddr)
 	agwpeMaxClients := cfg.GetInt(ax25.KeyAgwpeServerMaxClients)
 	if err := validateClientLimit(ax25.KeyAgwpeServerMaxClients, agwpeMaxClients); err != nil {
 		log.Fatal(err)
@@ -224,7 +224,7 @@ func main() {
 		"kiss_server_promiscuous", kissServerPromiscuous,
 		"kiss_server_max_clients", kissMaxClients,
 		"agwpe_enabled", agwpeEnabled,
-		"agwpe_port", agwpePort,
+		"agwpe_addr", agwpeAddr,
 		"agwpe_max_clients", agwpeMaxClients,
 	)
 
@@ -331,7 +331,7 @@ func main() {
 	var agwpeSrv *agwpe.TCPServer
 	if agwpeEnabled {
 		agwpeSrv = agwpe.NewTCPServer(agwpe.TCPServerConfig{
-			Addr:         fmt.Sprintf(":%d", agwpePort),
+			Addr:         agwpeAddr,
 			MaxClients:   agwpeMaxClients,
 			ServerConfig: agwpe.NewServerConfigFromConfig(cfg),
 		}, router)
@@ -339,7 +339,7 @@ func main() {
 			log.Fatalf("start AGWPE server: %v", err)
 		}
 		defer agwpeSrv.Stop()
-		slog.Info("AGWPE TCP server listening", "port", agwpePort)
+		slog.Info("AGWPE TCP server listening", "addr", agwpeAddr)
 	}
 
 	slog.Info("router running — press Ctrl+C to stop")

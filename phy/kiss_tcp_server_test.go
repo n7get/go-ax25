@@ -1,7 +1,6 @@
 package phy_test
 
 import (
-	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -10,23 +9,23 @@ import (
 	"github.com/n7get/go-ax25/phy"
 )
 
-func freePort(t *testing.T) uint16 {
+func freeAddr(t *testing.T) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("freePort: %v", err)
+		t.Fatalf("freeAddr: %v", err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
+	addr := ln.Addr().String()
 	ln.Close()
-	return uint16(port)
+	return addr
 }
 
 func TestKISSTCPServerPHY_ClientSendsFrame(t *testing.T) {
 	rxCh := make(chan *ax25.Frame, 4)
-	port := freePort(t)
+	addr := freeAddr(t)
 
 	srv, err := phy.NewKISSTCPServerPHY(phy.KISSTCPServerConfig{
-		Port: port,
+		Addr: addr,
 		OnRxFrame: func(_ *phy.KISSTCPServerConn, f *ax25.Frame) {
 			rxCh <- f
 		},
@@ -39,7 +38,7 @@ func TestKISSTCPServerPHY_ClientSendsFrame(t *testing.T) {
 	}
 	defer srv.Stop()
 
-	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,10 +61,10 @@ func TestKISSTCPServerPHY_ClientSendsFrame(t *testing.T) {
 
 func TestKISSTCPServerPHY_ServerSendsFrame(t *testing.T) {
 	connCh := make(chan *phy.KISSTCPServerConn, 1)
-	port := freePort(t)
+	addr := freeAddr(t)
 
 	srv, err := phy.NewKISSTCPServerPHY(phy.KISSTCPServerConfig{
-		Port: port,
+		Addr: addr,
 		OnConnected: func(c *phy.KISSTCPServerConn) {
 			connCh <- c
 		},
@@ -79,7 +78,7 @@ func TestKISSTCPServerPHY_ServerSendsFrame(t *testing.T) {
 	}
 	defer srv.Stop()
 
-	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,10 +113,10 @@ func TestKISSTCPServerPHY_ServerSendsFrame(t *testing.T) {
 func TestKISSTCPServerPHY_DisconnectCallback(t *testing.T) {
 	connectedCh := make(chan *phy.KISSTCPServerConn, 1)
 	disconnectedCh := make(chan *phy.KISSTCPServerConn, 1)
-	port := freePort(t)
+	addr := freeAddr(t)
 
 	srv, err := phy.NewKISSTCPServerPHY(phy.KISSTCPServerConfig{
-		Port:           port,
+		Addr:           addr,
 		OnConnected:    func(c *phy.KISSTCPServerConn) { connectedCh <- c },
 		OnDisconnected: func(c *phy.KISSTCPServerConn) { disconnectedCh <- c },
 		OnRxFrame:      func(_ *phy.KISSTCPServerConn, _ *ax25.Frame) {},
@@ -130,7 +129,7 @@ func TestKISSTCPServerPHY_DisconnectCallback(t *testing.T) {
 	}
 	defer srv.Stop()
 
-	conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,11 +154,11 @@ func TestKISSTCPServerPHY_DisconnectCallback(t *testing.T) {
 }
 
 func TestKISSTCPServerPHY_InvalidConfig(t *testing.T) {
-	_, err := phy.NewKISSTCPServerPHY(phy.KISSTCPServerConfig{Port: 0, OnRxFrame: func(*phy.KISSTCPServerConn, *ax25.Frame) {}})
+	_, err := phy.NewKISSTCPServerPHY(phy.KISSTCPServerConfig{Addr: "", OnRxFrame: func(*phy.KISSTCPServerConn, *ax25.Frame) {}})
 	if err == nil {
-		t.Error("expected error for port 0")
+		t.Error("expected error for empty Addr")
 	}
-	_, err = phy.NewKISSTCPServerPHY(phy.KISSTCPServerConfig{Port: 9999})
+	_, err = phy.NewKISSTCPServerPHY(phy.KISSTCPServerConfig{Addr: ":9999"})
 	if err == nil {
 		t.Error("expected error for nil OnRxFrame")
 	}
@@ -167,8 +166,8 @@ func TestKISSTCPServerPHY_InvalidConfig(t *testing.T) {
 func TestNewKISSTCPServerConfigFromConfig_Defaults(t *testing.T) {
 	cfg := ax25.NewConfig(nil)
 	c := phy.NewKISSTCPServerConfigFromConfig(cfg)
-	if c.Port != 8100 {
-		t.Errorf("Port: got %d, want 8100", c.Port)
+	if c.Addr != ":8100" {
+		t.Errorf("Addr: got %q, want \":8100\"", c.Addr)
 	}
 	if c.Promiscuous {
 		t.Errorf("Promiscuous: got true, want false")
@@ -183,12 +182,12 @@ func TestNewKISSTCPServerConfigFromConfig_Defaults(t *testing.T) {
 
 func TestNewKISSTCPServerConfigFromConfig_Override(t *testing.T) {
 	cfg := ax25.NewConfig(nil)
-	cfg.Set("kiss.server.port", "9200")
+	cfg.Set("kiss.server.addr", "127.0.0.1:9200")
 	cfg.Set("kiss.server.promiscuous", "true")
 	cfg.Set("kiss.server.tx_queue_depth", "32")
 	c := phy.NewKISSTCPServerConfigFromConfig(cfg)
-	if c.Port != 9200 {
-		t.Errorf("Port: got %d, want 9200", c.Port)
+	if c.Addr != "127.0.0.1:9200" {
+		t.Errorf("Addr: got %q, want \"127.0.0.1:9200\"", c.Addr)
 	}
 	if !c.Promiscuous {
 		t.Errorf("Promiscuous: got false, want true")

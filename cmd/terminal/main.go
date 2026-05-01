@@ -181,11 +181,10 @@ func parseFlags() cliArgs {
 }
 
 func printInterfaces(cfg *ax25.Config) {
-	agwpeEnabled := cfg.GetBool(ax25.KeyAgwpeClientEnabled)
 	kissEnabled := cfg.GetBool(ax25.KeyKissClientEnabled)
 	serialEnabled := cfg.GetBool(ax25.KeyKissSerialEnabled)
 
-	fmt.Fprintf(os.Stdout, "agwpe: %s\n", enabledLabel(agwpeEnabled))
+	fmt.Fprintf(os.Stdout, "agwpe: enabled\n")
 	fmt.Fprintf(os.Stdout, "kiss: %s\n", enabledLabel(kissEnabled))
 	fmt.Fprintf(os.Stdout, "serial: %s\n", enabledLabel(serialEnabled))
 }
@@ -221,13 +220,14 @@ func selectInterface(args cliArgs, cfg *ax25.Config) (ifaceMode, error) {
 		return modeSerial, nil
 	}
 
-	if cfg.GetBool(ax25.KeyAgwpeClientEnabled) {
-		return modeAGWPE, nil
+	// No flag: AGWPE is the default; KISS TCP and serial require explicit opt-in via config.
+	if cfg.GetBool(ax25.KeyKissSerialEnabled) {
+		return modeSerial, nil
 	}
 	if cfg.GetBool(ax25.KeyKissClientEnabled) {
 		return modeKISS, nil
 	}
-	return modeSerial, nil
+	return modeAGWPE, nil
 }
 
 func resolveLocalAddress(localOverride string, cfg *ax25.Config) (ax25.Address, error) {

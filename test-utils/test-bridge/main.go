@@ -279,7 +279,6 @@ func main() {
 	leftTCPServer := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr: *leftAGWPEAddr,
 		ServerConfig: agwpe.ServerConfig{
-			Port:            int(leftPort),
 			RadioPort:       testRadioPort,
 			PortDescription: "Port1 test-bridge-left",
 			TXQueueDepth:    64,
@@ -296,7 +295,6 @@ func main() {
 	rightTCPServer := agwpe.NewTCPServer(agwpe.TCPServerConfig{
 		Addr: *rightAGWPEAddr,
 		ServerConfig: agwpe.ServerConfig{
-			Port:            int(rightPort),
 			RadioPort:       testRadioPort,
 			PortDescription: "Port1 test-bridge-right",
 			TXQueueDepth:    64,

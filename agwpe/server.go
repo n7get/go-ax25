@@ -15,7 +15,6 @@ import (
 
 // ServerConfig configures an AGWPE server instance.
 type ServerConfig struct {
-	Port            int // TCP listen port
 	RadioPort       int // AGWPE radio port index (0-based); almost always 0
 	PortDescription string
 	TXQueueDepth    int
@@ -28,7 +27,6 @@ type ServerConfig struct {
 // NewServerConfigFromConfig populates ServerConfig from ax25.Config.
 func NewServerConfigFromConfig(cfg *ax25.Config) ServerConfig {
 	return ServerConfig{
-		Port:         cfg.GetInt(ax25.KeyAgwpeServerPort),
 		TXQueueDepth: cfg.GetInt(ax25.KeyAgwpeServerTxQueueDepth),
 		MaxConns:     cfg.GetInt(ax25.KeyAgwpeServerMaxConns),
 		ReadBufSize:  cfg.GetInt(ax25.KeyAgwpeServerReadBuf),

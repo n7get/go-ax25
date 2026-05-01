@@ -44,7 +44,7 @@ func (c *KISSTCPServerConn) RemoteAddr() net.Addr { return c.conn.RemoteAddr() }
 
 // KISSTCPServerConfig holds configuration for KISSTCPServerPHY.
 type KISSTCPServerConfig struct {
-	Port           uint16
+	Addr           string
 	Promiscuous    bool
 	TXQueueDepth   int
 	ReadBufSize    int
@@ -57,7 +57,7 @@ type KISSTCPServerConfig struct {
 // NewKISSTCPServerConfigFromConfig populates KISSTCPServerConfig from ax25.Config.
 func NewKISSTCPServerConfigFromConfig(cfg *ax25.Config) KISSTCPServerConfig {
 	return KISSTCPServerConfig{
-		Port:         uint16(cfg.GetInt(ax25.KeyKissServerPort)),
+		Addr:         cfg.GetStr(ax25.KeyKissServerAddr),
 		Promiscuous:  cfg.GetBool(ax25.KeyKissServerPromiscuous),
 		TXQueueDepth: cfg.GetInt(ax25.KeyKissServerTxQueueDepth),
 		ReadBufSize:  cfg.GetInt(ax25.KeyKissServerReadBuf),
@@ -78,8 +78,8 @@ type KISSTCPServerPHY struct {
 
 // NewKISSTCPServerPHY creates a new KISSTCPServerPHY. Call Start to listen.
 func NewKISSTCPServerPHY(cfg KISSTCPServerConfig) (*KISSTCPServerPHY, error) {
-	if cfg.Port == 0 {
-		return nil, fmt.Errorf("phy: KISSTCPServerPHY: Port must not be 0")
+	if cfg.Addr == "" {
+		return nil, fmt.Errorf("phy: KISSTCPServerPHY: Addr must not be empty")
 	}
 	if cfg.OnRxFrame == nil {
 		return nil, fmt.Errorf("phy: KISSTCPServerPHY: OnRxFrame must not be nil")
@@ -96,9 +96,9 @@ func NewKISSTCPServerPHY(cfg KISSTCPServerConfig) (*KISSTCPServerPHY, error) {
 
 // Start begins listening and accepting connections.
 func (p *KISSTCPServerPHY) Start() error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p.cfg.Port))
+	ln, err := net.Listen("tcp", p.cfg.Addr)
 	if err != nil {
-		return fmt.Errorf("phy: KISSTCPServerPHY: listen :%d: %w", p.cfg.Port, err)
+		return fmt.Errorf("phy: KISSTCPServerPHY: listen %s: %w", p.cfg.Addr, err)
 	}
 	p.ln = ln
 	p.wg.Add(1)

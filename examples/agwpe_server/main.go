@@ -15,7 +15,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"log/slog"
 	"os"
@@ -46,9 +45,9 @@ func main() {
 
 	serialPort := cfg.GetStr(ax25.KeyKissSerialDevice)
 	serialBaud := cfg.GetInt(ax25.KeyKissSerialBaud)
-	agwpePort := cfg.GetInt(ax25.KeyAgwpeServerPort)
+	agwpeAddr := cfg.GetStr(ax25.KeyAgwpeServerAddr)
 
-	slog.Info("starting agwpe_server", "serial", serialPort, "baud", serialBaud, "agwpe_port", agwpePort)
+	slog.Info("starting agwpe_server", "serial", serialPort, "baud", serialBaud, "agwpe_addr", agwpeAddr)
 
 	router := ax25.NewRouter(nil)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,14 +96,14 @@ func main() {
 	}()
 
 	agwpeSrv := agwpe.NewTCPServer(agwpe.TCPServerConfig{
-		Addr:         fmt.Sprintf(":%d", agwpePort),
+		Addr:         agwpeAddr,
 		ServerConfig: agwpe.NewServerConfigFromConfig(cfg),
 	}, router)
 	if err := agwpeSrv.Start(); err != nil {
 		log.Fatalf("start AGWPE server: %v", err)
 	}
 	defer agwpeSrv.Stop()
-	slog.Debug("AGWPE TCP server started", "addr", agwpePort)
+	slog.Debug("AGWPE TCP server started", "addr", agwpeAddr)
 
 	slog.Info("agwpe_server running - press Ctrl+C to stop")
 
