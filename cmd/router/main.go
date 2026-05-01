@@ -48,6 +48,17 @@ type tcpPool struct {
 	mode    ax25.PortMode
 }
 
+func clientLimitReached(active, max int) bool {
+	return max > 0 && active >= max
+}
+
+func validateClientLimit(key ax25.ConfigKey, max int) error {
+	if max < 0 {
+		return fmt.Errorf("config error: %s must be >= 0 (0 = unlimited)", key)
+	}
+	return nil
+}
+
 func newTCPPool(router *ax25.Router, maxConn int, mode ax25.PortMode) *tcpPool {
 	return &tcpPool{
 		clients: make(map[net.Conn]*tcpClient),
@@ -59,7 +70,7 @@ func newTCPPool(router *ax25.Router, maxConn int, mode ax25.PortMode) *tcpPool {
 
 func (p *tcpPool) add(conn net.Conn) error {
 	p.mu.Lock()
-	if len(p.clients) >= p.maxConn {
+	if clientLimitReached(len(p.clients), p.maxConn) {
 		p.mu.Unlock()
 		conn.Close()
 		return fmt.Errorf("max TCP clients reached (%d)", p.maxConn)
@@ -184,6 +195,9 @@ func main() {
 	kissListenAddr := cfg.GetStr(ax25.KeyKissServerAddr)
 	kissMaxClients := cfg.GetInt(ax25.KeyKissServerMaxClients)
 	kissServerPromiscuous := cfg.GetBool(ax25.KeyKissServerPromiscuous)
+	if err := validateClientLimit(ax25.KeyKissServerMaxClients, kissMaxClients); err != nil {
+		log.Fatal(err)
+	}
 
 	routerMode := ax25.RouterModeFromConfig(cfg)
 	if kissServerEnabled && kissServerPromiscuous && *routerMode == ax25.RouterModeBridge {
@@ -193,6 +207,10 @@ func main() {
 	// AGWPE TCP server
 	agwpeEnabled := cfg.GetBool(ax25.KeyAgwpeServerEnabled)
 	agwpePort := cfg.GetInt(ax25.KeyAgwpeServerPort)
+	agwpeMaxClients := cfg.GetInt(ax25.KeyAgwpeServerMaxClients)
+	if err := validateClientLimit(ax25.KeyAgwpeServerMaxClients, agwpeMaxClients); err != nil {
+		log.Fatal(err)
+	}
 
 	slog.Info("router starting",
 		"serial_enabled", kissSerialEnabled,
@@ -204,8 +222,10 @@ func main() {
 		"kiss_server_enabled", kissServerEnabled,
 		"kiss_server_addr", kissListenAddr,
 		"kiss_server_promiscuous", kissServerPromiscuous,
+		"kiss_server_max_clients", kissMaxClients,
 		"agwpe_enabled", agwpeEnabled,
 		"agwpe_port", agwpePort,
+		"agwpe_max_clients", agwpeMaxClients,
 	)
 
 	// ── router ──
@@ -312,6 +332,7 @@ func main() {
 	if agwpeEnabled {
 		agwpeSrv = agwpe.NewTCPServer(agwpe.TCPServerConfig{
 			Addr:         fmt.Sprintf(":%d", agwpePort),
+			MaxClients:   agwpeMaxClients,
 			ServerConfig: agwpe.NewServerConfigFromConfig(cfg),
 		}, router)
 		if err := agwpeSrv.Start(); err != nil {

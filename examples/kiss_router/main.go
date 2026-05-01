@@ -58,7 +58,7 @@ func newTCPPool(router *ax25.Router, maxConn int) *tcpPool {
 
 func (p *tcpPool) add(conn net.Conn) error {
 	p.mu.Lock()
-	if len(p.clients) >= p.maxConn {
+	if p.maxConn > 0 && len(p.clients) >= p.maxConn {
 		p.mu.Unlock()
 		conn.Close()
 		return fmt.Errorf("max TCP clients reached (%d)", p.maxConn)
@@ -175,6 +175,10 @@ func main() {
 	serialBaud := cfg.GetInt(ax25.KeyKissSerialBaud)
 	listenAddr := cfg.GetStr(ax25.KeyKissServerAddr)
 	maxClients := cfg.GetInt(ax25.KeyKissServerMaxClients)
+	if maxClients < 0 {
+		slog.Error("config error", "key", ax25.KeyKissServerMaxClients, "err", "must be >= 0 (0 = unlimited)")
+		os.Exit(2)
+	}
 
 	slog.Info("ROUTER: ESP-AX25 KISS Router (Go)")
 

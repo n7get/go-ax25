@@ -50,6 +50,7 @@ const (
 	KeyAgwpeClientTxQueueDepth ConfigKey = "agwpe.client.tx_queue_depth"
 
 	KeyAgwpeServerEnabled      ConfigKey = "agwpe.server.enabled"
+	KeyAgwpeServerMaxClients   ConfigKey = "agwpe.server.max_clients"
 	KeyAgwpeServerMaxConns     ConfigKey = "agwpe.server.max_conns"
 	KeyAgwpeServerPort         ConfigKey = "agwpe.server.port"
 	KeyAgwpeServerReadBuf      ConfigKey = "agwpe.server.read_buf"
@@ -98,7 +99,7 @@ const (
 // allConfigKeys lists every core key constant defined in this package.
 var allConfigKeys = []ConfigKey{
 	KeyAgwpeClientEnabled, KeyAgwpeClientHost, KeyAgwpeClientPort, KeyAgwpeClientReadBuf, KeyAgwpeClientTxQueueDepth,
-	KeyAgwpeServerEnabled, KeyAgwpeServerMaxConns, KeyAgwpeServerPort, KeyAgwpeServerReadBuf, KeyAgwpeServerTxQueueDepth,
+	KeyAgwpeServerEnabled, KeyAgwpeServerMaxClients, KeyAgwpeServerMaxConns, KeyAgwpeServerPort, KeyAgwpeServerReadBuf, KeyAgwpeServerTxQueueDepth,
 	KeyBeaconDestination, KeyBeaconEvery, KeyBeaconSource, KeyBeaconText, KeyBeaconVia,
 	KeyConnN2Retries, KeyConnT1Ms, KeyConnT2Ms, KeyConnT3Ms, KeyConnWindowSize,
 	KeyDigiCallsign,
@@ -152,6 +153,7 @@ var DefaultSchema = []ConfigParam{
 
 	// AGWPE server
 	{Key: KeyAgwpeServerEnabled, DefaultValue: "true", Description: "Enable AGWPE TCP server"},
+	{Key: KeyAgwpeServerMaxClients, DefaultValue: "16", Description: "AGWPE TCP server max simultaneous clients (0 = unlimited)"},
 	{Key: KeyAgwpeServerPort, DefaultValue: "8000", Description: "AGWPE TCP listen port"},
 	{Key: KeyAgwpeServerReadBuf, DefaultValue: "4132", Description: "AGWPE server rx read buffer size (bytes)"},
 	{Key: KeyAgwpeServerTxQueueDepth, DefaultValue: "64", Description: "AGWPE server TX channel depth"},
@@ -176,7 +178,7 @@ var DefaultSchema = []ConfigParam{
 	{Key: KeyKissServerPort, DefaultValue: "8100", Description: "KISS TCP listen port (integer)"},
 	{Key: KeyKissServerAddr, DefaultValue: ":8100", Description: "KISS TCP server listen address"},
 	{Key: KeyKissServerEnabled, DefaultValue: "true", Description: "Enable KISS TCP server"},
-	{Key: KeyKissServerMaxClients, DefaultValue: "8", Description: "KISS TCP server max simultaneous clients"},
+	{Key: KeyKissServerMaxClients, DefaultValue: "16", Description: "KISS TCP server max simultaneous clients (0 = unlimited)"},
 	{Key: KeyKissServerPromiscuous, DefaultValue: "false", Description: "Register KISS TCP server client ports as promiscuous (unsupported in bridge mode)"},
 	{Key: KeyKissServerReadBuf, DefaultValue: "4096", Description: "KISS TCP server rx read buffer size per client (bytes)"},
 	{Key: KeyKissServerTxQueueDepth, DefaultValue: "8", Description: "KISS TCP server TX channel depth per client"},

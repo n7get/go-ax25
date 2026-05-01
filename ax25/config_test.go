@@ -72,6 +72,12 @@ func TestConfig_Defaults(t *testing.T) {
 	if got := cfg.GetInt(KeyBeaconEvery); got != 0 {
 		t.Errorf("beacon.every default: got %d, want 0", got)
 	}
+	if got := cfg.GetInt(KeyAgwpeServerMaxClients); got != 16 {
+		t.Errorf("agwpe.server.max_clients default: got %d, want 16", got)
+	}
+	if got := cfg.GetInt(KeyKissServerMaxClients); got != 16 {
+		t.Errorf("kiss.server.max_clients default: got %d, want 16", got)
+	}
 }
 
 func TestConfig_Set(t *testing.T) {
