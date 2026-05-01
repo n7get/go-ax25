@@ -125,6 +125,13 @@ func (p *KISSTCPClientPHY) Send(frame *ax25.Frame) error {
 	}
 }
 
+// IsConnected reports whether the TCP transport is currently connected.
+func (p *KISSTCPClientPHY) IsConnected() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.conn != nil
+}
+
 func (p *KISSTCPClientPHY) addr() string {
 	return fmt.Sprintf("%s:%d", p.cfg.Host, p.cfg.Port)
 }
@@ -183,6 +190,14 @@ func (p *KISSTCPClientPHY) rxLoop() {
 				_, _ = decoder.Write(buf[:n])
 			}
 			if err != nil {
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					select {
+					case <-p.ctx.Done():
+						goto disconnected
+					default:
+					}
+					continue
+				}
 				break
 			}
 			select {

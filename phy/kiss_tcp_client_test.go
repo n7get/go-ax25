@@ -170,14 +170,132 @@ func TestKISSTCPClientPHY_SendNilFrame(t *testing.T) {
 	}
 }
 
+func TestKISSTCPClientPHY_IdleReadTimeoutDoesNotDisconnect(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	connAccepted := make(chan struct{})
+	serverRX := make(chan []byte, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		close(connAccepted)
+
+		buf := make([]byte, 4096)
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		n, _ := conn.Read(buf)
+		if n > 0 {
+			pkt := make([]byte, n)
+			copy(pkt, buf[:n])
+			serverRX <- pkt
+		}
+	}()
+
+	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	var portNum uint16
+	fmt.Sscanf(portStr, "%d", &portNum)
+
+	p, err := phy.NewKISSTCPClientPHY(phy.KISSTCPClientConfig{
+		Host:           host,
+		Port:           portNum,
+		ConnectTimeout: time.Second,
+		ReconnectDelay: 10 * time.Second,
+		OnRxFrame:      func(*ax25.Frame) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Start()
+	defer p.Stop()
+
+	select {
+	case <-connAccepted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for connection")
+	}
+
+	// Allow the client read loop to hit at least one idle read deadline.
+	time.Sleep(1200 * time.Millisecond)
+
+	frame := makeUIFramePHY("N0CALL-1", "APRS")
+	if err := p.Send(frame); err != nil {
+		t.Fatalf("send after idle timeout failed: %v", err)
+	}
+
+	select {
+	case pkt := <-serverRX:
+		if len(pkt) == 0 {
+			t.Fatal("expected KISS frame bytes, got empty payload")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for KISS frame on server")
+	}
+}
+
+func TestKISSTCPClientPHY_IsConnected(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		time.Sleep(200 * time.Millisecond)
+	}()
+
+	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	var portNum uint16
+	fmt.Sscanf(portStr, "%d", &portNum)
+
+	p, err := phy.NewKISSTCPClientPHY(phy.KISSTCPClientConfig{
+		Host:           host,
+		Port:           portNum,
+		ConnectTimeout: time.Second,
+		ReconnectDelay: time.Second,
+		OnRxFrame:      func(*ax25.Frame) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.IsConnected() {
+		t.Fatal("expected disconnected before Start")
+	}
+
+	p.Start()
+	defer p.Stop()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !p.IsConnected() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !p.IsConnected() {
+		t.Fatal("expected connected after Start")
+	}
+
+	<-serverDone
+}
+
 func TestNewKISSTCPClientConfigFromConfig_Defaults(t *testing.T) {
 	cfg := ax25.NewConfig(nil)
 	c := phy.NewKISSTCPClientConfigFromConfig(cfg)
 	if c.Host != "localhost" {
 		t.Errorf("Host: got %q, want \"localhost\"", c.Host)
 	}
-	if c.Port != 8001 {
-		t.Errorf("Port: got %d, want 8001", c.Port)
+	if c.Port != 8100 {
+		t.Errorf("Port: got %d, want 8100", c.Port)
 	}
 	if c.TXQueueDepth != 8 {
 		t.Errorf("TXQueueDepth: got %d, want 8", c.TXQueueDepth)

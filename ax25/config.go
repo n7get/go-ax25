@@ -43,6 +43,7 @@ var (
 
 // Core configuration key constants for type-safe access to Config values.
 const (
+	KeyAgwpeClientEnabled      ConfigKey = "agwpe.client.enabled"
 	KeyAgwpeClientHost         ConfigKey = "agwpe.client.host"
 	KeyAgwpeClientPort         ConfigKey = "agwpe.client.port"
 	KeyAgwpeClientReadBuf      ConfigKey = "agwpe.client.read_buf"
@@ -92,11 +93,12 @@ const (
 	KeyRouterPortQueueDepth ConfigKey = "router.port_queue_depth"
 	KeyStationCallsign      ConfigKey = "station.callsign"
 	KeyStationSsid          ConfigKey = "station.ssid"
+	KeyTerminalCallsign     ConfigKey = "terminal.callsign"
 )
 
 // allConfigKeys lists every core key constant defined in this package.
 var allConfigKeys = []ConfigKey{
-	KeyAgwpeClientHost, KeyAgwpeClientPort, KeyAgwpeClientReadBuf, KeyAgwpeClientTxQueueDepth,
+	KeyAgwpeClientEnabled, KeyAgwpeClientHost, KeyAgwpeClientPort, KeyAgwpeClientReadBuf, KeyAgwpeClientTxQueueDepth,
 	KeyAgwpeServerEnabled, KeyAgwpeServerMaxConns, KeyAgwpeServerPort, KeyAgwpeServerReadBuf, KeyAgwpeServerTxQueueDepth,
 	KeyBeaconDestination, KeyBeaconEvery, KeyBeaconSource, KeyBeaconText, KeyBeaconVia,
 	KeyConnN2Retries, KeyConnT1Ms, KeyConnT2Ms, KeyConnT3Ms, KeyConnWindowSize,
@@ -106,6 +108,7 @@ var allConfigKeys = []ConfigKey{
 	KeyKissServerAddr, KeyKissServerEnabled, KeyKissServerMaxClients, KeyKissServerPort, KeyKissServerReadBuf, KeyKissServerTxQueueDepth,
 	KeyRouterMode, KeyRouterPortQueueDepth,
 	KeyStationCallsign, KeyStationSsid,
+	KeyTerminalCallsign,
 }
 
 // AllSchemaKeys returns the set of all valid core configuration keys.
@@ -122,6 +125,7 @@ var DefaultSchema = []ConfigParam{
 	// Station identity
 	{Key: KeyStationCallsign, DefaultValue: "N0CALL", Description: "Station callsign"},
 	{Key: KeyStationSsid, DefaultValue: "0", Description: "Station SSID (0-15)"},
+	{Key: KeyTerminalCallsign, DefaultValue: "", Description: "Terminal local callsign override (empty = use station.callsign/ssid)"},
 
 	// Beacon
 	{Key: KeyBeaconSource, DefaultValue: "", Description: "Beacon source callsign (empty = disabled)"},
@@ -145,6 +149,7 @@ var DefaultSchema = []ConfigParam{
 	{Key: KeyRouterPortQueueDepth, DefaultValue: "32", Description: "Default per-port frame queue depth"},
 
 	// AGWPE client
+	{Key: KeyAgwpeClientEnabled, DefaultValue: "true", Description: "Enable AGWPE client mode"},
 	{Key: KeyAgwpeClientHost, DefaultValue: "localhost", Description: "AGWPE client host"},
 	{Key: KeyAgwpeClientPort, DefaultValue: "8000", Description: "AGWPE client port"},
 	{Key: KeyAgwpeClientReadBuf, DefaultValue: "4132", Description: "AGWPE client rx read buffer size (bytes)"},
@@ -168,7 +173,7 @@ var DefaultSchema = []ConfigParam{
 	// KISS TCP client PHY
 	{Key: KeyKissClientEnabled, DefaultValue: "false", Description: "Enable KISS TCP client PHY (mutually exclusive with serial PHY)"},
 	{Key: KeyKissClientHost, DefaultValue: "localhost", Description: "KISS TCP client host"},
-	{Key: KeyKissClientPort, DefaultValue: "8001", Description: "KISS TCP client port"},
+	{Key: KeyKissClientPort, DefaultValue: "8100", Description: "KISS TCP client port"},
 	{Key: KeyKissClientReadBuf, DefaultValue: "4096", Description: "KISS TCP client rx read buffer size (bytes)"},
 	{Key: KeyKissClientTxQueueDepth, DefaultValue: "8", Description: "KISS TCP client TX channel depth"},
 
