@@ -155,6 +155,47 @@ func TestNewServerConfigFromConfig_Defaults(t *testing.T) {
 	}
 }
 
+// TestBuildConnectViaReq_parseDigiPath verifies that the builder and the server
+// parser use the same wire format (Direwolf: [ndigi][N×10-byte callsigns]).
+func TestBuildConnectViaReq_parseDigiPath(t *testing.T) {
+	digis := []string{"WIDE1-1", "WIDE2-1"}
+	f := BuildConnectViaReq(0, "N7GET", "W1AW", digis)
+	if f.Kind != KindConnectViaReq {
+		t.Fatalf("kind: got %c, want 'v'", f.Kind)
+	}
+
+	want := len(digis)*CallsignLen + 1
+	if len(f.Data) != want {
+		t.Fatalf("data length: got %d, want %d", len(f.Data), want)
+	}
+	if f.Data[0] != byte(len(digis)) {
+		t.Fatalf("ndigi byte: got %d, want %d", f.Data[0], len(digis))
+	}
+
+	parsed := parseDigiPath(f.Data)
+	if len(parsed) != len(digis) {
+		t.Fatalf("parsed %d digis, want %d", len(parsed), len(digis))
+	}
+	for i, d := range digis {
+		if parsed[i].String() != d {
+			t.Errorf("digi[%d]: got %q, want %q", i, parsed[i].String(), d)
+		}
+	}
+}
+
+// TestBuildConnectViaReq_empty verifies an empty digi list produces a 1-byte
+// data field with ndigi=0 (not a nil/zero-length slice that the parser rejects).
+func TestBuildConnectViaReq_empty(t *testing.T) {
+	f := BuildConnectViaReq(0, "N7GET", "W1AW", nil)
+	if len(f.Data) != 1 || f.Data[0] != 0 {
+		t.Fatalf("empty digis: expected [0x00], got %v", f.Data)
+	}
+	parsed := parseDigiPath(f.Data)
+	if len(parsed) != 0 {
+		t.Errorf("expected 0 digis, got %d", len(parsed))
+	}
+}
+
 func TestNewServerConfigFromConfig_Override(t *testing.T) {
 	cfg := ax25.NewConfig(nil)
 	cfg.Set(ax25.KeyAgwpeServerPort, "8300")

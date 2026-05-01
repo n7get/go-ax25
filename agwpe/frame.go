@@ -308,13 +308,12 @@ func BuildConnectReq(port uint8, from, to string) *Frame {
 	return &Frame{Port: port, Kind: KindConnectReq, CallFrom: from, CallTo: to}
 }
 func BuildConnectViaReq(port uint8, from, to string, digis []string) *Frame {
-	// Data contains null-separated digi path.
-	var data []byte
+	// Direwolf wire format: [1-byte ndigi][ndigi × CallsignLen-byte null-padded callsigns]
+	data := make([]byte, 1+len(digis)*CallsignLen)
+	data[0] = byte(len(digis))
 	for i, d := range digis {
-		if i > 0 {
-			data = append(data, 0)
-		}
-		data = append(data, []byte(d)...)
+		offset := 1 + i*CallsignLen
+		copy(data[offset:offset+CallsignLen], d)
 	}
 	return &Frame{Port: port, Kind: KindConnectViaReq, CallFrom: from, CallTo: to, Data: data}
 }
