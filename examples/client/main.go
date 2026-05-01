@@ -246,7 +246,7 @@ func main() {
 		debug      = flag.Bool("debug", false, "enable debug logging")
 		localCall  = flag.String("local", "", "local callsign, e.g. N0CALL-1 (required)")
 		remoteCall = flag.String("remote", "", "remote callsign, e.g. W1AW-1 (required)")
-		kissTCP    = flag.String("kiss-tcp", "", "KISS TCP host:port, e.g. 127.0.0.1:8001")
+		kissTCP    = flag.String("kiss-tcp", "", "KISS TCP host:port, e.g. 127.0.0.1:8100")
 		kissSerial = flag.String("kiss-serial", "", "KISS serial device, e.g. /dev/ttyUSB0")
 		serialBaud = flag.Int("baud", 9600, "serial baud rate (used with -kiss-serial)")
 	)

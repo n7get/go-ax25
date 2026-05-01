@@ -81,7 +81,7 @@ func TestKISSTCPClientPHY_InvalidConfig(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for empty config")
 	}
-	_, err = phy.NewKISSTCPClientPHY(phy.KISSTCPClientConfig{Host: "localhost", Port: 8001})
+	_, err = phy.NewKISSTCPClientPHY(phy.KISSTCPClientConfig{Host: "localhost", Port: 8100})
 	if err == nil {
 		t.Error("expected error for nil OnRxFrame")
 	}

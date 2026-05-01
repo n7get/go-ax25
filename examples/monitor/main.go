@@ -19,7 +19,7 @@ import (
 
 func main() {
 	var (
-		server    = flag.String("server", "", "KISS TCP address host:port (required), e.g. 127.0.0.1:8001")
+		server    = flag.String("server", "", "KISS TCP address host:port (required), e.g. 127.0.0.1:8100")
 		showHex   = flag.Bool("hex", false, "also print hex dump of the decoded AX.25 frame bytes")
 		showInfo  = flag.Bool("info", true, "print an ASCII-ish preview of the AX.25 info field (if present)")
 		maxInfo   = flag.Int("max-info", 120, "max bytes of info preview to print")
