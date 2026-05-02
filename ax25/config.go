@@ -57,6 +57,7 @@ const (
 	KeyAgwpeServerTxQueueDepth ConfigKey = "agwpe.server.tx_queue_depth"
 
 	KeyBeaconDestination ConfigKey = "beacon.destination"
+	KeyBeaconAddr        ConfigKey = "beacon.addr"
 	KeyBeaconEvery       ConfigKey = "beacon.every"
 	KeyBeaconSource      ConfigKey = "beacon.source"
 	KeyBeaconText        ConfigKey = "beacon.text"
@@ -99,7 +100,7 @@ const (
 var allConfigKeys = []ConfigKey{
 	KeyAgwpeClientHost, KeyAgwpeClientPort, KeyAgwpeClientReadBuf, KeyAgwpeClientTxQueueDepth,
 	KeyAgwpeServerEnabled, KeyAgwpeServerAddr, KeyAgwpeServerMaxClients, KeyAgwpeServerMaxConns, KeyAgwpeServerReadBuf, KeyAgwpeServerTxQueueDepth,
-	KeyBeaconDestination, KeyBeaconEvery, KeyBeaconSource, KeyBeaconText, KeyBeaconVia,
+	KeyBeaconDestination, KeyBeaconAddr, KeyBeaconEvery, KeyBeaconSource, KeyBeaconText, KeyBeaconVia,
 	KeyConnN2Retries, KeyConnT1Ms, KeyConnT2Ms, KeyConnT3Ms, KeyConnWindowSize,
 	KeyDigiCallsign,
 	KeyKissClientEnabled, KeyKissClientHost, KeyKissClientPort, KeyKissClientReadBuf, KeyKissClientTxQueueDepth,
@@ -125,6 +126,7 @@ var DefaultSchema = []ConfigParam{
 	// Beacon
 	{Key: KeyBeaconSource, DefaultValue: "", Description: "Beacon source callsign (empty = disabled)"},
 	{Key: KeyBeaconDestination, DefaultValue: "BEACON", Description: "Beacon destination callsign"},
+	{Key: KeyBeaconAddr, DefaultValue: "", Description: "Beacon KISS TCP target address host:port (overrides kiss.client host/port)"},
 	{Key: KeyBeaconVia, DefaultValue: "", Description: "Comma-separated digipeater path"},
 	{Key: KeyBeaconText, DefaultValue: "go-ax25", Description: "Beacon text (supports \\r \\n \\xHH escapes)"},
 	{Key: KeyBeaconEvery, DefaultValue: "0", Description: "Beacon interval in minutes (0 = disabled)"},
