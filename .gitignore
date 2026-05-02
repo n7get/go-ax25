@@ -33,3 +33,7 @@ local/
 AGENTS.md
 CONTEXT.md
 docs/
+
+cmd/bbs/bbs.db
+cmd/bbs/bbs.db-shm
+cmd/bbs/bbs.db-wal
