@@ -73,6 +73,7 @@ const (
 
 	KeyKissClientEnabled      ConfigKey = "kiss.client.enabled"
 	KeyKissClientHost         ConfigKey = "kiss.client.host"
+	KeyKissClientLogFrames    ConfigKey = "kiss.client.log_frames"
 	KeyKissClientPort         ConfigKey = "kiss.client.port"
 	KeyKissClientReadBuf      ConfigKey = "kiss.client.read_buf"
 	KeyKissClientTxQueueDepth ConfigKey = "kiss.client.tx_queue_depth"
@@ -80,16 +81,22 @@ const (
 	KeyKissSerialEnabled      ConfigKey = "kiss.serial.enabled"
 	KeyKissSerialBaud         ConfigKey = "kiss.serial.baud"
 	KeyKissSerialDevice       ConfigKey = "kiss.serial.device"
+	KeyKissSerialLogFrames    ConfigKey = "kiss.serial.log_frames"
 	KeyKissSerialReadBuf      ConfigKey = "kiss.serial.read_buf"
 	KeyKissSerialRxQueueDepth ConfigKey = "kiss.serial.rx_queue_depth"
 	KeyKissSerialTxQueueDepth ConfigKey = "kiss.serial.tx_queue_depth"
 
 	KeyKissServerAddr         ConfigKey = "kiss.server.addr"
 	KeyKissServerEnabled      ConfigKey = "kiss.server.enabled"
+	KeyKissServerLogFrames    ConfigKey = "kiss.server.log_frames"
 	KeyKissServerMaxClients   ConfigKey = "kiss.server.max_clients"
 	KeyKissServerPromiscuous  ConfigKey = "kiss.server.promiscuous"
 	KeyKissServerReadBuf      ConfigKey = "kiss.server.read_buf"
 	KeyKissServerTxQueueDepth ConfigKey = "kiss.server.tx_queue_depth"
+
+	KeyMonitorEnabled ConfigKey = "monitor.enabled"
+	KeyMonitorPrefix  ConfigKey = "monitor.prefix"
+	KeyMonitorType    ConfigKey = "monitor.type"
 
 	KeyRouterMode           ConfigKey = "router.mode"
 	KeyRouterPortQueueDepth ConfigKey = "router.port_queue_depth"
@@ -103,9 +110,10 @@ var allConfigKeys = []ConfigKey{
 	KeyBeaconDestination, KeyBeaconAddr, KeyBeaconEvery, KeyBeaconSource, KeyBeaconText, KeyBeaconVia,
 	KeyConnN2Retries, KeyConnT1Ms, KeyConnT2Ms, KeyConnT3Ms, KeyConnWindowSize,
 	KeyDigiCallsign,
-	KeyKissClientEnabled, KeyKissClientHost, KeyKissClientPort, KeyKissClientReadBuf, KeyKissClientTxQueueDepth,
-	KeyKissSerialEnabled, KeyKissSerialBaud, KeyKissSerialDevice, KeyKissSerialReadBuf, KeyKissSerialRxQueueDepth, KeyKissSerialTxQueueDepth,
-	KeyKissServerAddr, KeyKissServerEnabled, KeyKissServerMaxClients, KeyKissServerPromiscuous, KeyKissServerReadBuf, KeyKissServerTxQueueDepth,
+	KeyKissClientEnabled, KeyKissClientHost, KeyKissClientLogFrames, KeyKissClientPort, KeyKissClientReadBuf, KeyKissClientTxQueueDepth,
+	KeyKissSerialEnabled, KeyKissSerialBaud, KeyKissSerialDevice, KeyKissSerialLogFrames, KeyKissSerialReadBuf, KeyKissSerialRxQueueDepth, KeyKissSerialTxQueueDepth,
+	KeyKissServerAddr, KeyKissServerEnabled, KeyKissServerLogFrames, KeyKissServerMaxClients, KeyKissServerPromiscuous, KeyKissServerReadBuf, KeyKissServerTxQueueDepth,
+	KeyMonitorEnabled, KeyMonitorPrefix, KeyMonitorType,
 	KeyRouterMode, KeyRouterPortQueueDepth,
 	KeyTerminalCallsign,
 }
@@ -163,6 +171,7 @@ var DefaultSchema = []ConfigParam{
 	{Key: KeyKissSerialEnabled, DefaultValue: "false", Description: "Enable serial KISS PHY (mutually exclusive with KISS TCP client)"},
 	{Key: KeyKissSerialDevice, DefaultValue: "/dev/ttyUSB0", Description: "Serial device for KISS TNC"},
 	{Key: KeyKissSerialBaud, DefaultValue: "9600", Description: "Serial baud rate"},
+	{Key: KeyKissSerialLogFrames, DefaultValue: "false", Description: "Log KISS boundary frames for serial KISS PHY when monitor.type=kiss"},
 	{Key: KeyKissSerialReadBuf, DefaultValue: "1024", Description: "KISS serial rx read buffer size (bytes)"},
 	{Key: KeyKissSerialRxQueueDepth, DefaultValue: "64", Description: "KISS serial rx frame queue depth"},
 	{Key: KeyKissSerialTxQueueDepth, DefaultValue: "32", Description: "KISS serial tx frame queue depth"},
@@ -170,6 +179,7 @@ var DefaultSchema = []ConfigParam{
 	// KISS TCP client PHY
 	{Key: KeyKissClientEnabled, DefaultValue: "false", Description: "Enable KISS TCP client PHY (mutually exclusive with serial PHY)"},
 	{Key: KeyKissClientHost, DefaultValue: "localhost", Description: "KISS TCP client host"},
+	{Key: KeyKissClientLogFrames, DefaultValue: "false", Description: "Log KISS boundary frames for KISS TCP client PHY when monitor.type=kiss"},
 	{Key: KeyKissClientPort, DefaultValue: "8100", Description: "KISS TCP client port"},
 	{Key: KeyKissClientReadBuf, DefaultValue: "4096", Description: "KISS TCP client rx read buffer size (bytes)"},
 	{Key: KeyKissClientTxQueueDepth, DefaultValue: "8", Description: "KISS TCP client TX channel depth"},
@@ -177,10 +187,16 @@ var DefaultSchema = []ConfigParam{
 	// KISS TCP server PHY
 	{Key: KeyKissServerAddr, DefaultValue: ":8100", Description: "KISS TCP server listen address"},
 	{Key: KeyKissServerEnabled, DefaultValue: "true", Description: "Enable KISS TCP server"},
+	{Key: KeyKissServerLogFrames, DefaultValue: "false", Description: "Log KISS boundary frames for KISS TCP server client PHYs when monitor.type=kiss"},
 	{Key: KeyKissServerMaxClients, DefaultValue: "16", Description: "KISS TCP server max simultaneous clients (0 = unlimited)"},
 	{Key: KeyKissServerPromiscuous, DefaultValue: "false", Description: "Register KISS TCP server client ports as promiscuous (unsupported in bridge mode)"},
 	{Key: KeyKissServerReadBuf, DefaultValue: "4096", Description: "KISS TCP server rx read buffer size per client (bytes)"},
 	{Key: KeyKissServerTxQueueDepth, DefaultValue: "8", Description: "KISS TCP server TX channel depth per client"},
+
+	// Monitor
+	{Key: KeyMonitorEnabled, DefaultValue: "false", Description: "Enable router capture logging to pcap"},
+	{Key: KeyMonitorPrefix, DefaultValue: "monitor", Description: "Capture file prefix; files are written as <prefix>-yymmddvv.pcap"},
+	{Key: KeyMonitorType, DefaultValue: "ax25", Description: "Capture data type: ax25 or kiss"},
 }
 
 // NewConfig creates a Config with the given schema (merged with DefaultSchema).

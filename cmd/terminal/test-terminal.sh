@@ -24,4 +24,4 @@
 #  -server string
 #    	override server host for -agwpe/-kiss
 #
-go run main.go -agwpe -local n7get n7get-2 relay
+go run . -agwpe -local n7get n7get-2 

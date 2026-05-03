@@ -19,6 +19,8 @@ type KISSTCPClientConfig struct {
 	ReconnectDelay time.Duration
 	TXQueueDepth   int
 	ReadBufSize    int
+	OnRxKISS       func([]byte)
+	OnTxKISS       func([]byte)
 	OnRxFrame      ax25.FrameCallback
 	OnError        ax25.ErrorCallback
 }
@@ -117,6 +119,9 @@ func (p *KISSTCPClientPHY) Send(frame *ax25.Frame) error {
 		return fmt.Errorf("phy: Send: encode: %w", err)
 	}
 	kissed := ax25.KISSEncode(0, 0, raw)
+	if p.cfg.OnTxKISS != nil {
+		p.cfg.OnTxKISS(append([]byte(nil), kissed...))
+	}
 	select {
 	case p.txCh <- kissed:
 		return nil
@@ -171,6 +176,10 @@ func (p *KISSTCPClientPHY) rxLoop() {
 		decoder := ax25.NewKISSDecoder(func(portNum, cmd uint8, data []byte) {
 			if cmd != 0 {
 				return
+			}
+			if p.cfg.OnRxKISS != nil {
+				kissed := ax25.KISSEncode(portNum, cmd, data)
+				p.cfg.OnRxKISS(kissed)
 			}
 			frame, err := ax25.ParseFrame(data)
 			if err != nil {

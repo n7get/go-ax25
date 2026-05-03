@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -46,6 +47,8 @@ type tcpPool struct {
 	router  *ax25.Router
 	maxConn int
 	mode    ax25.PortMode
+	monitor *frameMonitor
+	logKISS bool
 }
 
 func clientLimitReached(active, max int) bool {
@@ -59,12 +62,14 @@ func validateClientLimit(key ax25.ConfigKey, max int) error {
 	return nil
 }
 
-func newTCPPool(router *ax25.Router, maxConn int, mode ax25.PortMode) *tcpPool {
+func newTCPPool(router *ax25.Router, maxConn int, mode ax25.PortMode, monitor *frameMonitor, logKISS bool) *tcpPool {
 	return &tcpPool{
 		clients: make(map[net.Conn]*tcpClient),
 		router:  router,
 		maxConn: maxConn,
 		mode:    mode,
+		monitor: monitor,
+		logKISS: logKISS,
 	}
 }
 
@@ -77,7 +82,20 @@ func (p *tcpPool) add(conn net.Conn) error {
 	}
 	p.mu.Unlock()
 
-	kissPHY := ax25.NewKISSSerialPHY(conn, ax25.KISSSerialPHYConfig{})
+	kissCfg := ax25.KISSSerialPHYConfig{}
+	if p.logKISS && p.monitor != nil {
+		kissCfg.OnRxKISS = func(data []byte) {
+			if err := p.monitor.LogKISS(data); err != nil {
+				slog.Error("monitor: log KISS rx failed", "err", err)
+			}
+		}
+		kissCfg.OnTxKISS = func(data []byte) {
+			if err := p.monitor.LogKISS(data); err != nil {
+				slog.Error("monitor: log KISS tx failed", "err", err)
+			}
+		}
+	}
+	kissPHY := ax25.NewKISSSerialPHY(conn, kissCfg)
 
 	port := &ax25.Port{
 		Mode: p.mode,
@@ -215,6 +233,30 @@ func main() {
 	// Digipeater
 	digiCallsign := cfg.GetStr(ax25.KeyDigiCallsign)
 
+	// Frame monitor
+	monitorEnabled := cfg.GetBool(ax25.KeyMonitorEnabled)
+	monitorType := cfg.GetStr(ax25.KeyMonitorType)
+	monitorPrefix := cfg.GetStr(ax25.KeyMonitorPrefix)
+	kissSerialLogFrames := cfg.GetBool(ax25.KeyKissSerialLogFrames)
+	kissClientLogFrames := cfg.GetBool(ax25.KeyKissClientLogFrames)
+	kissServerLogFrames := cfg.GetBool(ax25.KeyKissServerLogFrames)
+	if monitorEnabled {
+		if monitorType != monitorTypeAX25 && monitorType != monitorTypeKISS {
+			log.Fatal("config error: monitor.type must be ax25 or kiss")
+		}
+		if monitorPrefix == "" {
+			log.Fatal("config error: monitor.prefix must not be empty")
+		}
+		if monitorType == monitorTypeKISS {
+			anyKISSLogging := (kissSerialEnabled && kissSerialLogFrames) ||
+				(kissClientEnabled && kissClientLogFrames) ||
+				(kissServerEnabled && kissServerLogFrames)
+			if !anyKISSLogging {
+				log.Fatal("config error: monitor.type=kiss requires at least one enabled KISS transport with *.log_frames=true")
+			}
+		}
+	}
+
 	slog.Info("router starting",
 		"serial_enabled", kissSerialEnabled,
 		"serial_device", serialDevice,
@@ -230,10 +272,38 @@ func main() {
 		"agwpe_addr", agwpeAddr,
 		"agwpe_max_clients", agwpeMaxClients,
 		"digi_callsign", digiCallsign,
+		"monitor_enabled", monitorEnabled,
+		"monitor_type", monitorType,
+		"monitor_prefix", monitorPrefix,
 	)
 
 	// ── router ──
 	router := ax25.NewRouter(routerMode)
+
+	var monitor *frameMonitor
+	if monitorEnabled {
+		var err error
+		monitor, err = newFrameMonitor(monitorType, monitorPrefix)
+		if err != nil {
+			log.Fatalf("start monitor: %v", err)
+		}
+		defer monitor.Close()
+
+		if monitorType == monitorTypeAX25 {
+			monitorPort := &ax25.Port{
+				Mode: ax25.PortModePromiscuous,
+				OnRxFrame: func(f *ax25.Frame) {
+					if err := monitor.LogAX25(f); err != nil {
+						slog.Error("monitor: log AX.25 frame failed", "err", err)
+					}
+				},
+			}
+			if err := router.RegisterPort(monitorPort); err != nil {
+				log.Fatalf("register monitor port: %v", err)
+			}
+			defer router.UnregisterPort(monitorPort)
+		}
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -261,6 +331,18 @@ func main() {
 
 		kissCfg := phy.NewKISSSerialConfigFromConfig(cfg)
 		kissCfg.Port = sp
+		if monitorEnabled && monitorType == monitorTypeKISS && kissSerialLogFrames {
+			kissCfg.OnRxKISS = func(data []byte) {
+				if err := monitor.LogKISS(data); err != nil {
+					slog.Error("monitor: log serial KISS rx failed", "err", err)
+				}
+			}
+			kissCfg.OnTxKISS = func(data []byte) {
+				if err := monitor.LogKISS(data); err != nil {
+					slog.Error("monitor: log serial KISS tx failed", "err", err)
+				}
+			}
+		}
 		serialPHY, err := phy.NewKISSSerialPHY(kissCfg)
 		if err != nil {
 			log.Fatalf("create serial PHY: %v", err)
@@ -300,6 +382,18 @@ func main() {
 		tcpClientPort := &ax25.Port{Mode: ax25.PortModeDefault}
 
 		kissClientCfg := phy.NewKISSTCPClientConfigFromConfig(cfg)
+		if monitorEnabled && monitorType == monitorTypeKISS && kissClientLogFrames {
+			kissClientCfg.OnRxKISS = func(data []byte) {
+				if err := monitor.LogKISS(data); err != nil {
+					slog.Error("monitor: log KISS client rx failed", "err", err)
+				}
+			}
+			kissClientCfg.OnTxKISS = func(data []byte) {
+				if err := monitor.LogKISS(data); err != nil {
+					slog.Error("monitor: log KISS client tx failed", "err", err)
+				}
+			}
+		}
 		kissClientCfg.OnRxFrame = func(f *ax25.Frame) {
 			if err := router.Send(f, tcpClientPort); err != nil {
 				log.Printf("kiss client rx: %v", err)
@@ -339,7 +433,13 @@ func main() {
 		if kissServerPromiscuous {
 			kissServerPortMode = ax25.PortModePromiscuous
 		}
-		pool = newTCPPool(router, kissMaxClients, kissServerPortMode)
+		pool = newTCPPool(
+			router,
+			kissMaxClients,
+			kissServerPortMode,
+			monitor,
+			monitorEnabled && monitorType == monitorTypeKISS && kissServerLogFrames,
+		)
 		go serveTCPKISS(kissListener, pool)
 		slog.Info("KISS TCP server listening", "addr", kissListenAddr, "max_clients", kissMaxClients, "promiscuous", kissServerPromiscuous)
 	}
@@ -363,8 +463,25 @@ func main() {
 
 	// ── wait for signal ──
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	for {
+		sig := <-sigCh
+		if sig == syscall.SIGHUP {
+			if monitorEnabled {
+				if err := monitor.RotateSIGHUP(); err != nil {
+					if errors.Is(err, errMonitorVVExhausted) {
+						slog.Warn("monitor: SIGHUP rotation skipped; vv exhausted for day", "err", err)
+					} else {
+						slog.Error("monitor: SIGHUP rotation failed", "err", err)
+					}
+				}
+			} else {
+				slog.Info("received SIGHUP; monitor disabled")
+			}
+			continue
+		}
+		break
+	}
 
 	slog.Info("router shutting down")
 	cancel()

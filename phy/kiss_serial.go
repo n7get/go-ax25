@@ -14,6 +14,8 @@ type KISSSerialConfig struct {
 	Port         io.ReadWriter
 	TXQueueDepth int
 	ReadBufSize  int
+	OnRxKISS     func([]byte)
+	OnTxKISS     func([]byte)
 	OnRxFrame    ax25.FrameCallback
 	OnError      ax25.ErrorCallback
 }
@@ -37,5 +39,7 @@ func NewKISSSerialPHY(cfg KISSSerialConfig) (*ax25.KISSSerialPHY, error) {
 	return ax25.NewKISSSerialPHY(cfg.Port, ax25.KISSSerialPHYConfig{
 		TxQueueDepth: cfg.TXQueueDepth,
 		ReadBufSize:  cfg.ReadBufSize,
+		OnRxKISS:     cfg.OnRxKISS,
+		OnTxKISS:     cfg.OnTxKISS,
 	}), nil
 }

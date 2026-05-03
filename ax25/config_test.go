@@ -78,6 +78,15 @@ func TestConfig_Defaults(t *testing.T) {
 	if got := cfg.GetInt(KeyKissServerMaxClients); got != 16 {
 		t.Errorf("kiss.server.max_clients default: got %d, want 16", got)
 	}
+	if got := cfg.GetBool(KeyMonitorEnabled); got {
+		t.Errorf("monitor.enabled default: got true, want false")
+	}
+	if got := cfg.GetStr(KeyMonitorType); got != "ax25" {
+		t.Errorf("monitor.type default: got %q, want \"ax25\"", got)
+	}
+	if got := cfg.GetStr(KeyMonitorPrefix); got != "monitor" {
+		t.Errorf("monitor.prefix default: got %q, want \"monitor\"", got)
+	}
 }
 
 func TestConfig_Set(t *testing.T) {

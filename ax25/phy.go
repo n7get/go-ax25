@@ -40,6 +40,8 @@ type KISSSerialPHYConfig struct {
 	RxQueueDepth int
 	TxQueueDepth int
 	ReadBufSize  int
+	OnRxKISS     func([]byte)
+	OnTxKISS     func([]byte)
 }
 
 // KISSSerialPHY implements PHY over a KISS-framed io.ReadWriter.
@@ -91,6 +93,9 @@ func (p *KISSSerialPHY) SendFrame(f *Frame) error {
 		return fmt.Errorf("ax25: KISSSerialPHY.SendFrame: %w", err)
 	}
 	encoded := KISSEncode(p.cfg.Port, 0, raw)
+	if p.cfg.OnTxKISS != nil {
+		p.cfg.OnTxKISS(append([]byte(nil), encoded...))
+	}
 	select {
 	case p.txCh <- encoded:
 		return nil
@@ -144,6 +149,10 @@ func (p *KISSSerialPHY) rxLoop(ctx context.Context) {
 	dec := NewKISSDecoder(func(port, cmd byte, data []byte) {
 		if cmd != 0 {
 			return
+		}
+		if p.cfg.OnRxKISS != nil {
+			kissed := KISSEncode(port, cmd, data)
+			p.cfg.OnRxKISS(kissed)
 		}
 		f, err := ParseFrame(data)
 		if err != nil {

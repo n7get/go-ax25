@@ -86,6 +86,7 @@ Example mapping:
 |---|---|---|---|---|
 | `GOAX25_KISS_CLIENT_ENABLED` | `kiss.client.enabled` | `false` | Boolean (`true`, `false`, `1`, `0`, `t`, `f`) | Enable KISS TCP client PHY (mutually exclusive with serial PHY) |
 | `GOAX25_KISS_CLIENT_HOST` | `kiss.client.host` | `localhost` | Non-empty hostname or IP | KISS TCP client host |
+| `GOAX25_KISS_CLIENT_LOG_FRAMES` | `kiss.client.log_frames` | `false` | Boolean (`true`, `false`, `1`, `0`, `t`, `f`) | Log KISS RX/TX boundary frames for KISS TCP client PHY when `monitor.type=kiss` |
 | `GOAX25_KISS_CLIENT_PORT` | `kiss.client.port` | `8100` | Integer `1-65535` | KISS TCP client port |
 | `GOAX25_KISS_CLIENT_READ_BUF` | `kiss.client.read_buf` | `4096` | Integer bytes (`0` uses library default; negative invalid) | KISS TCP client rx read buffer size (bytes) |
 | `GOAX25_KISS_CLIENT_TX_QUEUE_DEPTH` | `kiss.client.tx_queue_depth` | `8` | Integer (`0` uses library default; negative invalid) | KISS TCP client TX channel depth |
@@ -97,6 +98,7 @@ Example mapping:
 | `GOAX25_KISS_SERIAL_ENABLED` | `kiss.serial.enabled` | `false` | Boolean (`true`, `false`, `1`, `0`, `t`, `f`) | Enable serial KISS PHY (mutually exclusive with KISS TCP client) |
 | `GOAX25_KISS_SERIAL_DEVICE` | `kiss.serial.device` | `/dev/ttyUSB0` | Serial device path | Serial device for KISS TNC |
 | `GOAX25_KISS_SERIAL_BAUD` | `kiss.serial.baud` | `9600` | Integer baud rate | Serial baud rate |
+| `GOAX25_KISS_SERIAL_LOG_FRAMES` | `kiss.serial.log_frames` | `false` | Boolean (`true`, `false`, `1`, `0`, `t`, `f`) | Log KISS RX/TX boundary frames for serial KISS PHY when `monitor.type=kiss` |
 | `GOAX25_KISS_SERIAL_READ_BUF` | `kiss.serial.read_buf` | `1024` | Integer bytes (`<= 0` falls back to PHY default) | KISS serial rx read buffer size (bytes) |
 | `GOAX25_KISS_SERIAL_RX_QUEUE_DEPTH` | `kiss.serial.rx_queue_depth` | `64` | Integer (`<= 0` falls back to PHY default) | KISS serial rx frame queue depth |
 | `GOAX25_KISS_SERIAL_TX_QUEUE_DEPTH` | `kiss.serial.tx_queue_depth` | `32` | Integer (`<= 0` falls back to PHY default) | KISS serial tx frame queue depth |
@@ -107,10 +109,19 @@ Example mapping:
 |---|---|---|---|---|
 | `GOAX25_KISS_SERVER_ADDR` | `kiss.server.addr` | `:8100` | Non-empty TCP listen address (for example `:8100`, `127.0.0.1:8100`) | KISS TCP server listen address |
 | `GOAX25_KISS_SERVER_ENABLED` | `kiss.server.enabled` | `true` | Boolean (`true`, `false`, `1`, `0`, `t`, `f`) | Enable KISS TCP server |
+| `GOAX25_KISS_SERVER_LOG_FRAMES` | `kiss.server.log_frames` | `false` | Boolean (`true`, `false`, `1`, `0`, `t`, `f`) | Log KISS RX/TX boundary frames for KISS TCP server client PHYs when `monitor.type=kiss` |
 | `GOAX25_KISS_SERVER_MAX_CLIENTS` | `kiss.server.max_clients` | `16` | Integer `>= 0` (`0` = unlimited) | KISS TCP server max simultaneous clients (0 = unlimited) |
 | `GOAX25_KISS_SERVER_PROMISCUOUS` | `kiss.server.promiscuous` | `false` | Boolean (`true`, `false`, `1`, `0`, `t`, `f`) | Register KISS TCP server client ports as promiscuous (unsupported in bridge mode) |
 | `GOAX25_KISS_SERVER_READ_BUF` | `kiss.server.read_buf` | `4096` | Integer bytes (`0` uses library default; negative invalid) | KISS TCP server rx read buffer size per client (bytes) |
 | `GOAX25_KISS_SERVER_TX_QUEUE_DEPTH` | `kiss.server.tx_queue_depth` | `8` | Integer (`0` uses library default; negative invalid) | KISS TCP server TX channel depth per client |
+
+### monitor
+
+| Environment Variable | Config Key | Default | Permissible Values | Description |
+|---|---|---|---|---|
+| `GOAX25_MONITOR_ENABLED` | `monitor.enabled` | `false` | Boolean (`true`, `false`, `1`, `0`, `t`, `f`) | Enable router capture logging to pcap |
+| `GOAX25_MONITOR_PREFIX` | `monitor.prefix` | `monitor` | Non-empty file path prefix | Capture file prefix; files are written as `<prefix>-yymmddvv.pcap` |
+| `GOAX25_MONITOR_TYPE` | `monitor.type` | `ax25` | `ax25`, `kiss` | Capture data type: AX.25 Router frames or KISS boundary frames |
 
 ### router
 
