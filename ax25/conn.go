@@ -870,12 +870,19 @@ func cloneConnFrame(f *Frame) *Frame {
 // ---------------------------------------------------------------------------
 
 // extractReturnPath builds a digipeater path for replies from an incoming frame.
+// It collects digipeaters that have been traversed (H-bit set), reverses them
+// for the return trip, and clears HasBeenRepeated so the repeater will forward them.
 func extractReturnPath(f *Frame) []Address {
 	var path []Address
 	for _, d := range f.Digipeaters {
 		if d.HasBeenRepeated {
+			d.HasBeenRepeated = false
 			path = append(path, d)
 		}
+	}
+	// Reverse: multi-hop paths must be traversed in opposite order on the return trip.
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
 	}
 	return path
 }
