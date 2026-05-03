@@ -394,3 +394,100 @@ func TestConn_ConcurrentStateAndBusyCalls(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestExtractReturnPath_ClearsHBit(t *testing.T) {
+	relay, _ := ParseAddress("RELAY")
+	relay.HasBeenRepeated = true
+
+	f := &Frame{Digipeaters: []Address{relay}}
+	path := extractReturnPath(f)
+
+	if len(path) != 1 {
+		t.Fatalf("want 1 digi, got %d", len(path))
+	}
+	if path[0].HasBeenRepeated {
+		t.Error("extractReturnPath must clear HasBeenRepeated; got H-bit still set")
+	}
+}
+
+func TestExtractReturnPath_ReversesMultiHop(t *testing.T) {
+	r1, _ := ParseAddress("RELAY1")
+	r1.HasBeenRepeated = true
+	r2, _ := ParseAddress("RELAY2")
+	r2.HasBeenRepeated = true
+
+	f := &Frame{Digipeaters: []Address{r1, r2}}
+	path := extractReturnPath(f)
+
+	if len(path) != 2 {
+		t.Fatalf("want 2 digis, got %d", len(path))
+	}
+	if path[0].Callsign != r2.Callsign {
+		t.Errorf("want first return hop %s, got %s", r2.Callsign, path[0].Callsign)
+	}
+	if path[1].Callsign != r1.Callsign {
+		t.Errorf("want second return hop %s, got %s", r1.Callsign, path[1].Callsign)
+	}
+	for i, d := range path {
+		if d.HasBeenRepeated {
+			t.Errorf("path[%d] HasBeenRepeated must be false", i)
+		}
+	}
+}
+
+// TestConn_ReplyViaDigiClearsHBit verifies that when a Conn receives an
+// incoming SABM whose digipeater path is already marked repeated (H-bit set),
+// its reply frames carry the return path with H-bit cleared so the repeater
+// can relay the reply correctly.
+func TestConn_ReplyViaDigiClearsHBit(t *testing.T) {
+	locB, _ := ParseAddress("N7GET-2")
+	relay, _ := ParseAddress("RELAY")
+	relay.HasBeenRepeated = true // digipeater already forwarded the SABM
+
+	var txFrames []*Frame
+	var mu sync.Mutex
+
+	cbs := ConnCallbacks{
+		OnConnect:    func(Address, bool) {},
+		OnDisconnect: func() {},
+		OnLinkReset:  func() {},
+		OnError:      func(*ConnError) {},
+		OnData:       func([]byte) {},
+		OnTxFrame: func(f *Frame) {
+			mu.Lock()
+			txFrames = append(txFrames, f)
+			mu.Unlock()
+		},
+	}
+	conn, err := NewConn(locB, cbs, nil)
+	if err != nil {
+		t.Fatalf("NewConn: %v", err)
+	}
+
+	// Deliver SABM from N7GET via RELAY* (H-bit set — already digipeated).
+	src, _ := ParseAddress("N7GET")
+	sabm := &Frame{
+		Destination: locB,
+		Source:      src,
+		Digipeaters: []Address{relay},
+		IsCommand:   true,
+		Type:        FrameU,
+		Control:     CtrlSABM | CtrlPFBit,
+	}
+	conn.OnFrame(sabm)
+
+	mu.Lock()
+	frames := append([]*Frame(nil), txFrames...)
+	mu.Unlock()
+
+	if len(frames) == 0 {
+		t.Fatal("expected at least one reply frame (UA)")
+	}
+	for _, f := range frames {
+		for i, d := range f.Digipeaters {
+			if d.HasBeenRepeated {
+				t.Errorf("reply frame %v digi[%d] %s has H-bit set; want cleared", f.Type, i, d.Callsign)
+			}
+		}
+	}
+}

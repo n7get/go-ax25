@@ -152,8 +152,10 @@ func TestRouter_DigipeaterHBit(t *testing.T) {
 		got := lastFrame
 		mu.Unlock()
 		if got != nil {
-			if !got.Digipeaters[0].HasBeenRepeated {
-				t.Error("H-bit not set on relayed frame")
+			// Router delivers the raw clone to digipeater ports without H-bit mutation.
+			// The Digipeater component (ax25.Digipeater) is responsible for H-bit advancement.
+			if got.Digipeaters[0].HasBeenRepeated {
+				t.Error("router must not set H-bit on frames delivered to digipeater ports")
 			}
 			return
 		}
@@ -549,10 +551,11 @@ func TestSwitch_DroppedWhenNoMatchAndNoDefault(t *testing.T) {
 	}
 }
 
-// TestSwitch_MultiHopDigiOnlyFirstUnrepeatedFires verifies that when a frame
-// has two digipeater hops and the first is already marked, only the port whose
-// destination matches the second (next unrepeated) hop receives the frame.
-func TestSwitch_MultiHopDigiOnlyFirstUnrepeatedFires(t *testing.T) {
+// TestSwitch_AllDigiPortsReceiveWhenHopPending verifies that when a frame has
+// two digipeater hops and the first is already marked, ALL registered digipeater
+// ports receive the raw frame (router-level delivery is unfiltered; next-hop
+// gating is the responsibility of the ax25.Digipeater handler).
+func TestSwitch_AllDigiPortsReceiveWhenHopPending(t *testing.T) {
 	r := NewRouter(nil) // Switch mode
 	defer r.Close()
 
@@ -580,13 +583,15 @@ func TestSwitch_MultiHopDigiOnlyFirstUnrepeatedFires(t *testing.T) {
 
 	sender := &Port{Mode: PortModeDefault}
 	r.Send(f, sender)
+	// Wait for both ports to receive.
 	waitForCount(t, &secondGot, &mu, 1, 500*time.Millisecond)
+	waitForCount(t, &firstGot, &mu, 1, 500*time.Millisecond)
 
 	mu.Lock()
 	first, second := firstGot, secondGot
 	mu.Unlock()
-	if first != 0 {
-		t.Errorf("first digi port (already repeated) must not fire; got %d", first)
+	if first != 1 {
+		t.Errorf("first digi port: want 1 frame (router delivers to all digi ports), got %d", first)
 	}
 	if second != 1 {
 		t.Errorf("second digi port (next hop): want 1 frame, got %d", second)

@@ -212,6 +212,9 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Digipeater
+	digiCallsign := cfg.GetStr(ax25.KeyDigiCallsign)
+
 	slog.Info("router starting",
 		"serial_enabled", kissSerialEnabled,
 		"serial_device", serialDevice,
@@ -226,6 +229,7 @@ func main() {
 		"agwpe_enabled", agwpeEnabled,
 		"agwpe_addr", agwpeAddr,
 		"agwpe_max_clients", agwpeMaxClients,
+		"digi_callsign", digiCallsign,
 	)
 
 	// ── router ──
@@ -233,6 +237,19 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// ── digipeater (optional) ──
+	if digiCallsign != "" {
+		var digiPort *ax25.Port
+		digi, err := ax25.NewDigipeater(ax25.DigiConfigFromConfig(cfg), router, func(f *ax25.Frame) error {
+			return router.Send(f, digiPort)
+		})
+		if err != nil {
+			log.Fatalf("config error: digi.callsign: %v", err)
+		}
+		digiPort = digi.Port()
+		defer digi.Close()
+	}
 
 	// ── serial KISS PHY (optional default port) ──
 	if kissSerialEnabled {
