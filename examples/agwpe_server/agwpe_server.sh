@@ -7,4 +7,4 @@
 #  -port string
 #    	serial port device (default "/dev/ttyUSB0")
 
-go run main.go -debug
+go run . -debug

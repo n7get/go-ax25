@@ -14,5 +14,5 @@
 #  -sysop-secret string
 #    	sysop password for CONFIG auth test (empty = no-auth)
 
-go run main.go -debug -local N7GET -remote N7GET-2 -agwpe 127.0.0.1:8000
-#go run main.go -debug -local N7GET -remote N7GET-2 -agwpe 192.168.68.167:8000
+go run . -debug -local N7GET -remote N7GET-2 -agwpe 127.0.0.1:8000
+#go run . -debug -local N7GET -remote N7GET-2 -agwpe 192.168.68.167:8000

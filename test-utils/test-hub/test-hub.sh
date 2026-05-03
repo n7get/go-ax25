@@ -15,7 +15,7 @@
 #       enable ConnectVia path using fixed digi RELAY
 
 # No digi path fields (default)
-go run main.go -debug -local N7GET-9 -remote N7GET-2
+go run . -debug -local N7GET-9 -remote N7GET-2
 
 # Include RELAY in AX.25 digipeater path fields
-go run main.go -debug -local N7GET-9 -remote N7GET-2 -with-digi
+go run . -debug -local N7GET-9 -remote N7GET-2 -with-digi

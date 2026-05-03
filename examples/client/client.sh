@@ -1,4 +1,4 @@
-go run main.go \
+go run . \
 	-debug \
 	-kiss-serial=/dev/tty.usbmodem114201 \
 	-baud=57600 \

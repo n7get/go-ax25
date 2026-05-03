@@ -20,6 +20,6 @@
 #  -step-timeout int
 #    	per-test timeout in ms (default 5000)
 
-#go run main.go -debug -agwpe 192.168.68.11:8000 -port 0 -local N7GET -remote W7SCS-1
-#go run main.go -debug -agwpe 192.168.68.167:8000 -port 0 -local N7GET -remote N7GET-2
-go run main.go -debug -agwpe 127.0.0.1:8000 -port 0 -local N7GET -remote W7SCS-1
+#go run . -debug -agwpe 192.168.68.11:8000 -port 0 -local N7GET -remote W7SCS-1
+#go run . -debug -agwpe 192.168.68.167:8000 -port 0 -local N7GET -remote N7GET-2
+go run . -debug -agwpe 127.0.0.1:8000 -port 0 -local N7GET -remote W7SCS-1
