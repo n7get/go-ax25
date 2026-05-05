@@ -336,40 +336,46 @@ func expandInline(line string) []byte {
 }
 
 const (
-	fileBurstLineDelay = 120 * time.Millisecond
-	agwFileLineDelay   = 1200 * time.Millisecond
-	connSendRetryDelay = 75 * time.Millisecond
+	fileBurstLineDelay   = 120 * time.Millisecond
+	connSendRetryDelay   = 75 * time.Millisecond
+	agwOutstandingPoll   = 200 * time.Millisecond
+	agwOutstandingWait   = 2 * time.Second
+	agwOutstandingSettle = 100 * time.Millisecond
 )
+
+func splitPayload(data []byte, maxChunk int) [][]byte {
+	if len(data) <= maxChunk {
+		return [][]byte{data}
+	}
+	chunks := make([][]byte, 0, (len(data)+maxChunk-1)/maxChunk)
+	for start := 0; start < len(data); start += maxChunk {
+		end := start + maxChunk
+		if end > len(data) {
+			end = len(data)
+		}
+		chunk := make([]byte, end-start)
+		copy(chunk, data[start:end])
+		chunks = append(chunks, chunk)
+	}
+	return chunks
+}
 
 func sendConnPayloads(conn *ax25.Conn, payloads [][]byte) error {
 	for i, data := range payloads {
-		for {
-			err := conn.SendData(data)
-			if err == nil {
-				break
+		for _, chunk := range splitPayload(data, ax25.MaxInfoLen) {
+			for {
+				err := conn.SendData(chunk)
+				if err == nil {
+					break
+				}
+				if !errors.Is(err, ax25.ErrConnSendBufFull) {
+					return err
+				}
+				time.Sleep(connSendRetryDelay)
 			}
-			if !errors.Is(err, ax25.ErrConnSendBufFull) {
-				return err
-			}
-			time.Sleep(connSendRetryDelay)
 		}
 		if len(payloads) > 1 && i < len(payloads)-1 {
 			time.Sleep(fileBurstLineDelay)
-		}
-	}
-	return nil
-}
-
-func sendAGWPayloads(client *agwpe.Client, local, remote string, payloads [][]byte) error {
-	for i, data := range payloads {
-		frame := agwpe.BuildSendData(0, local, remote, 0xF0, data)
-		if err := client.SendFrame(frame); err != nil {
-			return err
-		}
-		if len(payloads) > 1 && i < len(payloads)-1 {
-			// Remote AGWPE servers may drop queued payloads once Conn window is full.
-			// File sends are intentionally paced conservatively for reliability.
-			time.Sleep(agwFileLineDelay)
 		}
 	}
 	return nil
@@ -676,6 +682,7 @@ type agwSession struct {
 	connected atomic.Bool
 	doneCh    chan struct{}
 	onceDone  sync.Once
+	outCh     chan uint32
 }
 
 func runAGWPETerminal(cfg *ax25.Config, args cliArgs, local ax25.Address, remote *ax25.Address, via []ax25.Address) error {
@@ -691,6 +698,7 @@ func runAGWPETerminal(cfg *ax25.Config, args cliArgs, local ax25.Address, remote
 	s := &agwSession{
 		local:  local.String(),
 		doneCh: make(chan struct{}),
+		outCh:  make(chan uint32, 1),
 	}
 	agwCfg.OnRxFrame = func(f *agwpe.Frame) { s.onFrame(f) }
 	agwCfg.OnError = func(err error) {
@@ -773,6 +781,20 @@ func (s *agwSession) onFrame(f *agwpe.Frame) {
 			return
 		}
 		_, _ = os.Stdout.Write(normalizeInbound(f.Data))
+	case agwpe.KindOutstandingResp, agwpe.KindOutstandingReq:
+		count, err := parseOutstandingCount(f)
+		if err != nil {
+			return
+		}
+		select {
+		case s.outCh <- count:
+		default:
+			select {
+			case <-s.outCh:
+			default:
+			}
+			s.outCh <- count
+		}
 	case agwpe.KindDisconnectResp:
 		if s.connected.Load() {
 			fmt.Fprintln(os.Stderr, "remote disconnected")
@@ -806,7 +828,7 @@ func (s *agwSession) stdinLoop() {
 		if echoLocally {
 			echoPayloads(payloads)
 		}
-		if err := sendAGWPayloads(s.client, s.local, remote, payloads); err != nil {
+		if err := s.sendPayloads(remote, payloads); err != nil {
 			fmt.Fprintf(os.Stderr, "send failed: %v\n", err)
 		}
 	}
@@ -826,6 +848,78 @@ func (s *agwSession) disconnect() error {
 	return s.client.SendFrame(agwpe.BuildDisconnectReq(0, s.local, remote))
 }
 
+func (s *agwSession) sendPayloads(remote string, payloads [][]byte) error {
+	for _, data := range payloads {
+		chunks := splitPayload(data, ax25.MaxInfoLen)
+		for _, chunk := range chunks {
+			if err := retrySend(s.client, agwpe.BuildSendData(0, s.local, remote, 0xF0, chunk), 6*time.Second); err != nil {
+				return err
+			}
+			if err := s.waitForOutstanding(remote); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *agwSession) waitForOutstanding(remote string) error {
+	// Let the server account for the just-sent payload before polling.
+	time.Sleep(agwOutstandingSettle)
+	zeroCount := 0
+	for {
+		count, err := s.queryOutstanding(remote)
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			zeroCount++
+			if zeroCount >= 2 {
+				return nil
+			}
+		} else {
+			zeroCount = 0
+		}
+		time.Sleep(agwOutstandingPoll)
+	}
+}
+
+func (s *agwSession) queryOutstanding(remote string) (uint32, error) {
+	for {
+		select {
+		case <-s.outCh:
+		default:
+			goto drained
+		}
+	}
+
+drained:
+	// Query per-connection outstanding count. Some AGWPE servers answer with 'Y',
+	// others with 'y', so onFrame accepts either.
+	if err := retrySend(s.client, &agwpe.Frame{Port: 0, Kind: agwpe.KindOutstandingReq, CallFrom: s.local, CallTo: remote}, 6*time.Second); err != nil {
+		return 0, err
+	}
+	select {
+	case count := <-s.outCh:
+		return count, nil
+	case <-time.After(agwOutstandingWait):
+		return 0, fmt.Errorf("timeout waiting for agwpe outstanding response")
+	}
+}
+
+func parseOutstandingCount(f *agwpe.Frame) (uint32, error) {
+	if f == nil {
+		return 0, fmt.Errorf("nil outstanding frame")
+	}
+	if f.Kind != agwpe.KindOutstandingResp && f.Kind != agwpe.KindOutstandingReq {
+		return 0, fmt.Errorf("wrong outstanding kind %q", f.Kind)
+	}
+	if len(f.Data) < 4 {
+		return 0, fmt.Errorf("short outstanding frame")
+	}
+	return uint32(f.Data[0]) | uint32(f.Data[1])<<8 | uint32(f.Data[2])<<16 | uint32(f.Data[3])<<24, nil
+}
+
 func retrySend(client *agwpe.Client, frame *agwpe.Frame, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -833,7 +927,7 @@ func retrySend(client *agwpe.Client, frame *agwpe.Frame, timeout time.Duration) 
 		if err == nil {
 			return nil
 		}
-		if !errors.Is(err, ax25.ErrNotConnected) {
+		if !errors.Is(err, ax25.ErrNotConnected) && !errors.Is(err, ax25.ErrTXQueueFull) {
 			return err
 		}
 		if time.Now().After(deadline) {
