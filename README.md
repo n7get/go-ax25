@@ -83,7 +83,25 @@ Additional flags:
 -config <path>     path to ax25.ini (default: ax25.ini)
 ```
 
-The escape sequence `~.` (on its own line) sends DISC and exits. `Ctrl-C` also disconnects cleanly.
+**Escape sequences:**
+
+Whole-line escapes (line must contain only the sequence):
+
+| Sequence | Action |
+|---|---|
+| `~.` | Disconnect and exit |
+| `~~` | Send a literal `~` |
+| `~!<filename>` | Read a text file and send it line-by-line (inline escapes expanded) |
+
+Inline escapes (can appear anywhere in a line):
+
+| Sequence | Action |
+|---|---|
+| `\a` … `\z` | Send control character (^A–^Z; e.g. `\c` = ^C, `\z` = ^Z) |
+| `\<digits>` | Send byte by decimal value 0–255 (e.g. `\27` = ESC, `\3` = ^C) |
+| `\\` | Send a literal `\` |
+
+Unknown `\` sequences are passed through unchanged. Invalid numeric escapes (outside 0-255) are also sent literally. `Ctrl-C` disconnects locally without sending anything to the remote.
 
 ---
 

@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -253,6 +254,138 @@ func connConfigFromCfg(cfg *ax25.Config) *ax25.ConnConfig {
 	}
 }
 
+// processLine handles line-level and inline escape sequences:
+//   - ~.           whole-line: disconnect signal
+//   - ~~           whole-line: send a literal tilde
+//   - ~!<file>     whole-line: read file, send each line (inline escapes expanded)
+//   - \<a-z>       inline: control character (\a=\x01 … \z=\x1A)
+//   - \<digits>    inline: byte value 0-255 in decimal
+//   - \\           inline: literal backslash
+//   - other        appended with \r as-is
+func processLine(line string) ([][]byte, bool, bool, error) {
+	// Whole-line escapes
+	if line == "~." {
+		return nil, true, false, nil
+	}
+	if line == "~~" {
+		return [][]byte{[]byte("~\r")}, false, false, nil
+	}
+	if strings.HasPrefix(line, "~!") {
+		filename := line[2:]
+		if filename == "" {
+			return nil, false, false, fmt.Errorf("~! requires a filename")
+		}
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			return nil, false, false, err
+		}
+		fileLines := strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
+		result := make([][]byte, 0, len(fileLines))
+		for _, fl := range fileLines {
+			expanded := expandInline(fl)
+			result = append(result, expanded)
+		}
+		return result, false, true, nil
+	}
+
+	expanded := expandInline(line)
+	return [][]byte{expanded}, false, false, nil
+}
+
+// expandInline expands inline backslash escapes within a single line and appends \r.
+func expandInline(line string) []byte {
+	var out []byte
+	i := 0
+	for i < len(line) {
+		if line[i] != '\\' || i+1 >= len(line) {
+			out = append(out, line[i])
+			i++
+			continue
+		}
+		next := line[i+1]
+		switch {
+		case next >= 'a' && next <= 'z':
+			// \a -> \x01 … \z -> \x1A
+			out = append(out, next-'a'+1)
+			i += 2
+		case next >= '0' && next <= '9':
+			// \<digits> -> decimal byte value
+			j := i + 1
+			for j < len(line) && line[j] >= '0' && line[j] <= '9' {
+				j++
+			}
+			num, err := strconv.ParseInt(line[i+1:j], 10, 16)
+			if err != nil || num < 0 || num > 255 {
+				// Invalid numeric escape: pass through literally so normal typing is never dropped.
+				out = append(out, line[i:j]...)
+				i = j
+				continue
+			}
+			out = append(out, byte(num))
+			i = j
+		case next == '\\':
+			out = append(out, '\\')
+			i += 2
+		default:
+			// Unknown escape: pass through literally
+			out = append(out, '\\', next)
+			i += 2
+		}
+	}
+	return append(out, '\r')
+}
+
+const (
+	fileBurstLineDelay = 120 * time.Millisecond
+	agwFileLineDelay   = 1200 * time.Millisecond
+	connSendRetryDelay = 75 * time.Millisecond
+)
+
+func sendConnPayloads(conn *ax25.Conn, payloads [][]byte) error {
+	for i, data := range payloads {
+		for {
+			err := conn.SendData(data)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, ax25.ErrConnSendBufFull) {
+				return err
+			}
+			time.Sleep(connSendRetryDelay)
+		}
+		if len(payloads) > 1 && i < len(payloads)-1 {
+			time.Sleep(fileBurstLineDelay)
+		}
+	}
+	return nil
+}
+
+func sendAGWPayloads(client *agwpe.Client, local, remote string, payloads [][]byte) error {
+	for i, data := range payloads {
+		frame := agwpe.BuildSendData(0, local, remote, 0xF0, data)
+		if err := client.SendFrame(frame); err != nil {
+			return err
+		}
+		if len(payloads) > 1 && i < len(payloads)-1 {
+			// Remote AGWPE servers may drop queued payloads once Conn window is full.
+			// File sends are intentionally paced conservatively for reliability.
+			time.Sleep(agwFileLineDelay)
+		}
+	}
+	return nil
+}
+
+func echoPayloads(payloads [][]byte) {
+	for _, data := range payloads {
+		line := data
+		if n := len(line); n > 0 && line[n-1] == '\r' {
+			line = line[:n-1]
+		}
+		_, _ = os.Stdout.Write(line)
+		_, _ = os.Stdout.Write([]byte(nativeLineEnding()))
+	}
+}
+
 type connSession struct {
 	conn         *ax25.Conn
 	router       *ax25.Router
@@ -309,15 +442,23 @@ func (s *connSession) runStdin() {
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
 		line := sc.Text()
-		if line == "~." {
+		payloads, shouldDisconnect, echoLocally, err := processLine(line)
+		if shouldDisconnect {
 			_ = s.conn.Shutdown()
 			close(s.disconnectCh)
 			return
 		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "escape error: %v\n", err)
+			continue
+		}
 		if !s.connected.Load() {
 			continue
 		}
-		if err := s.conn.SendData([]byte(line + "\r")); err != nil {
+		if echoLocally {
+			echoPayloads(payloads)
+		}
+		if err := sendConnPayloads(s.conn, payloads); err != nil {
 			fmt.Fprintf(os.Stderr, "send failed: %v\n", err)
 		}
 	}
@@ -645,10 +786,15 @@ func (s *agwSession) stdinLoop() {
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
 		line := sc.Text()
-		if line == "~." {
+		payloads, shouldDisconnect, echoLocally, err := processLine(line)
+		if shouldDisconnect {
 			_ = s.disconnect()
 			s.onceDone.Do(func() { close(s.doneCh) })
 			return
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "escape error: %v\n", err)
+			continue
 		}
 		if !s.connected.Load() {
 			continue
@@ -657,8 +803,10 @@ func (s *agwSession) stdinLoop() {
 		if remote == "" {
 			continue
 		}
-		frame := agwpe.BuildSendData(0, s.local, remote, 0xF0, []byte(line+"\r"))
-		if err := s.client.SendFrame(frame); err != nil {
+		if echoLocally {
+			echoPayloads(payloads)
+		}
+		if err := sendAGWPayloads(s.client, s.local, remote, payloads); err != nil {
 			fmt.Fprintf(os.Stderr, "send failed: %v\n", err)
 		}
 	}
