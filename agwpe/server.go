@@ -485,8 +485,12 @@ func (s *Server) handleConnect(f *Frame, digis []ax25.Address) {
 		},
 		OnData: func(data []byte) {
 			s.enqueue(BuildConnectedData(s.cfg.RadioPort, localCall, remoteCall, data))
+		},
+		OnTxAck: func(count int) {
 			if slotIdx >= 0 {
-				s.pendingFrames[slotIdx].Add(-1)
+				if v := s.pendingFrames[slotIdx].Add(-int64(count)); v < 0 {
+					slog.Warn("agwpe server: pendingFrames underflow", "local", localCall, "remote", remoteCall, "value", v)
+				}
 			}
 		},
 		OnError: func(err *ax25.ConnError) {
@@ -616,8 +620,8 @@ func (s *Server) handleOutstandingPort() {
 }
 
 func (s *Server) handleOutstandingConn(f *Frame) {
-	localCall := f.CallTo
-	remoteCall := f.CallFrom
+	localCall := f.CallFrom
+	remoteCall := f.CallTo
 	var pending int64
 	s.mu.Lock()
 	for i, slot := range s.slots {
@@ -630,6 +634,9 @@ func (s *Server) handleOutstandingConn(f *Frame) {
 		slot.mu.Unlock()
 	}
 	s.mu.Unlock()
+	if pending < 0 {
+		pending = 0
+	}
 	s.enqueue(BuildOutstandingConn(s.cfg.RadioPort, localCall, remoteCall, int(pending)))
 }
 

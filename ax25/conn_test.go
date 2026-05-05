@@ -343,6 +343,71 @@ func TestConn_InvalidNRRecoveryFromConnected(t *testing.T) {
 	}
 }
 
+func TestConn_TimerRecoveryRetransmitsUnackedIFrame(t *testing.T) {
+	local := mustParseAddr(t, "N7GET-1")
+	remote := mustParseAddr(t, "W1AW-2")
+
+	var tx []*Frame
+	c, err := NewConn(local, ConnCallbacks{
+		OnData: func([]byte) {},
+		OnTxFrame: func(f *Frame) {
+			tx = append(tx, cloneConnFrame(f))
+		},
+	}, &ConnConfig{T1: time.Second, T2: time.Second, T3: time.Second, N2: 3, Window: 4})
+	if err != nil {
+		t.Fatalf("NewConn: %v", err)
+	}
+	defer c.Close()
+
+	if err := c.OnFrame(makeSABM(t, remote.String(), local.String())); err != nil {
+		t.Fatalf("OnFrame SABM: %v", err)
+	}
+	if !c.IsConnected() {
+		t.Fatal("expected connected state after inbound SABM")
+	}
+	tx = nil
+
+	if err := c.SendData([]byte("hello")); err != nil {
+		t.Fatalf("SendData: %v", err)
+	}
+	if len(tx) != 1 || tx[0].Type != FrameI {
+		t.Fatalf("expected one outbound I frame, got %d frames", len(tx))
+	}
+
+	c.onT1Expired()
+	if c.State() != ConnStateTimerRecovery {
+		t.Fatalf("state after T1 expiry: got %v, want %v", c.State(), ConnStateTimerRecovery)
+	}
+	if len(tx) != 2 || tx[1].Type != FrameS || !HasPF(tx[1].Control) {
+		t.Fatalf("expected poll RR after T1 expiry, got %#v", tx)
+	}
+
+	rrFinal := &Frame{
+		Destination: local,
+		Source:      remote,
+		IsCommand:   false,
+		Type:        FrameS,
+		Control:     BuildRRControl(0, true),
+	}
+	if err := c.OnFrame(rrFinal); err != nil {
+		t.Fatalf("OnFrame RR(F): %v", err)
+	}
+
+	if len(tx) < 3 {
+		t.Fatalf("expected retransmitted I frame after RR(F), got %d frames", len(tx))
+	}
+	last := tx[len(tx)-1]
+	if last.Type != FrameI {
+		t.Fatalf("expected last frame to be retransmitted I frame, got type %v control=0x%02x", last.Type, last.Control)
+	}
+	if string(last.Payload) != "hello" {
+		t.Fatalf("retransmitted payload = %q, want %q", last.Payload, "hello")
+	}
+	if !c.t1Active {
+		t.Fatal("expected T1 to restart after retransmission")
+	}
+}
+
 func TestConn_LinkResetOnSABMWhileConnected(t *testing.T) {
 	h := newConnHarness(t)
 	defer h.A.Close()

@@ -79,6 +79,12 @@ type ConnCallbacks struct {
 	// OnTxFrame is called when a frame must be transmitted.
 	// Required. Must not block.
 	OnTxFrame func(f *Frame)
+
+	// OnTxAck is called when the remote acknowledges one or more outgoing
+	// I-frames via N(R) in a received RR, RNR, REJ, or I-frame.
+	// count is the number of newly acknowledged frames (always ≥ 1).
+	// Must not block.
+	OnTxAck func(count int)
 }
 
 // ConnConfig holds timer and window parameters.
@@ -464,7 +470,9 @@ func (c *Conn) handleSFrame(f *Frame) error {
 		if pf && c.state == ConnStateTimerRecovery {
 			c.stopT1()
 			c.state = ConnStateConnected
-			c.sendPendingIFrames()
+			if c.va != c.vs {
+				c.retransmitFrom(c.va)
+			}
 		} else if pf {
 			c.sendRR(true, false)
 		}
@@ -783,12 +791,18 @@ func (c *Conn) isValidNR(nr uint8) bool {
 
 func (c *Conn) handleReceivedNR(nr uint8) {
 	// Acknowledge frames up to nr.
+	var acked int
 	for c.va != nr {
 		// Remove the oldest pending frame.
 		if len(c.txQueue) > 0 {
 			c.txQueue = c.txQueue[1:]
 		}
 		c.va = mod8(c.va + 1)
+		acked++
+	}
+	if acked > 0 && c.cbs.OnTxAck != nil {
+		n := acked
+		c.enqueueAction(func() { c.cbs.OnTxAck(n) })
 	}
 	if c.va == c.vs {
 		c.stopT1()
