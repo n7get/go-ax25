@@ -33,6 +33,7 @@ local/
 AGENTS.md
 CONTEXT.md
 docs/
+.github/
 
 cmd/bbs/bbs.db
 cmd/bbs/bbs.db-shm

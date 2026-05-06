@@ -149,7 +149,7 @@ func (s *SQLiteStore) Find(id uint32) (*MessageIndex, error) {
 func (s *SQLiteStore) List(limit int, mineOnly bool, callsign string, isSysop bool) ([]MessageIndex, error) {
 	cols := "id, from_call, to_call, subject, flags, size, created_at"
 	var where string
-	var args []interface{}
+	var args []any
 
 	if mineOnly {
 		where = " WHERE from_call = ? OR to_call = ?"

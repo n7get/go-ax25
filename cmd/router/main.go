@@ -19,7 +19,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"log/slog"
 	"net"
 	"os"
@@ -161,6 +160,11 @@ func (p *tcpPool) stopAll() {
 	}
 }
 
+func fatal(msg string, args ...any) {
+	slog.Error(msg, args...)
+	os.Exit(1)
+}
+
 func serveTCPKISS(ln net.Listener, pool *tcpPool) {
 	for {
 		conn, err := ln.Accept()
@@ -197,7 +201,7 @@ func main() {
 	kissSerialEnabled := cfg.GetBool(ax25.KeyKissSerialEnabled)
 	kissClientEnabled := cfg.GetBool(ax25.KeyKissClientEnabled)
 	if kissSerialEnabled && kissClientEnabled {
-		log.Fatal("config error: kiss.serial.enabled and kiss.client.enabled cannot both be true")
+		fatal("config error: kiss.serial.enabled and kiss.client.enabled cannot both be true")
 	}
 
 	// Serial KISS TNC
@@ -214,12 +218,12 @@ func main() {
 	kissMaxClients := cfg.GetInt(ax25.KeyKissServerMaxClients)
 	kissServerPromiscuous := cfg.GetBool(ax25.KeyKissServerPromiscuous)
 	if err := validateClientLimit(ax25.KeyKissServerMaxClients, kissMaxClients); err != nil {
-		log.Fatal(err)
+		fatal("config error", "err", err)
 	}
 
 	routerMode := ax25.RouterModeFromConfig(cfg)
 	if kissServerEnabled && kissServerPromiscuous && *routerMode == ax25.RouterModeBridge {
-		log.Fatal("config error: kiss.server.promiscuous is not supported in bridge mode")
+		fatal("config error: kiss.server.promiscuous is not supported in bridge mode")
 	}
 
 	// AGWPE TCP server
@@ -227,7 +231,7 @@ func main() {
 	agwpeAddr := cfg.GetStr(ax25.KeyAgwpeServerAddr)
 	agwpeMaxClients := cfg.GetInt(ax25.KeyAgwpeServerMaxClients)
 	if err := validateClientLimit(ax25.KeyAgwpeServerMaxClients, agwpeMaxClients); err != nil {
-		log.Fatal(err)
+		fatal("config error", "err", err)
 	}
 
 	// Digipeater
@@ -242,17 +246,17 @@ func main() {
 	kissServerLogFrames := cfg.GetBool(ax25.KeyKissServerLogFrames)
 	if monitorEnabled {
 		if monitorType != monitorTypeAX25 && monitorType != monitorTypeKISS {
-			log.Fatal("config error: monitor.type must be ax25 or kiss")
+			fatal("config error: monitor.type must be ax25 or kiss")
 		}
 		if monitorPrefix == "" {
-			log.Fatal("config error: monitor.prefix must not be empty")
+			fatal("config error: monitor.prefix must not be empty")
 		}
 		if monitorType == monitorTypeKISS {
 			anyKISSLogging := (kissSerialEnabled && kissSerialLogFrames) ||
 				(kissClientEnabled && kissClientLogFrames) ||
 				(kissServerEnabled && kissServerLogFrames)
 			if !anyKISSLogging {
-				log.Fatal("config error: monitor.type=kiss requires at least one enabled KISS transport with *.log_frames=true")
+				fatal("config error: monitor.type=kiss requires at least one enabled KISS transport with *.log_frames=true")
 			}
 		}
 	}
@@ -285,7 +289,7 @@ func main() {
 		var err error
 		monitor, err = newFrameMonitor(monitorType, monitorPrefix)
 		if err != nil {
-			log.Fatalf("start monitor: %v", err)
+			fatal("start monitor", "err", err)
 		}
 		defer monitor.Close()
 
@@ -299,7 +303,7 @@ func main() {
 				},
 			}
 			if err := router.RegisterPort(monitorPort); err != nil {
-				log.Fatalf("register monitor port: %v", err)
+				fatal("register monitor port", "err", err)
 			}
 			defer router.UnregisterPort(monitorPort)
 		}
@@ -315,7 +319,7 @@ func main() {
 			return router.Send(f, digiPort)
 		})
 		if err != nil {
-			log.Fatalf("config error: digi.callsign: %v", err)
+			fatal("config error: digi.callsign", "err", err)
 		}
 		digiPort = digi.Port()
 		defer digi.Close()
@@ -325,7 +329,7 @@ func main() {
 	if kissSerialEnabled {
 		sp, err := serial.Open(serialDevice, &serial.Mode{BaudRate: serialBaud})
 		if err != nil {
-			log.Fatalf("open serial port %s: %v", serialDevice, err)
+			fatal("open serial port", "device", serialDevice, "err", err)
 		}
 		defer sp.Close()
 
@@ -345,7 +349,7 @@ func main() {
 		}
 		serialPHY, err := phy.NewKISSSerialPHY(kissCfg)
 		if err != nil {
-			log.Fatalf("create serial PHY: %v", err)
+			fatal("create serial PHY", "err", err)
 		}
 
 		serialPort := &ax25.Port{
@@ -353,16 +357,16 @@ func main() {
 			OnRxFrame: func(f *ax25.Frame) {
 				slog.Debug("serial tx", "frame", f)
 				if err := serialPHY.SendFrame(f); err != nil {
-					log.Printf("serial send: %v", err)
+					slog.Error("serial send", "err", err)
 				}
 			},
 		}
 		if err := router.RegisterPort(serialPort); err != nil {
-			log.Fatalf("register serial port: %v", err)
+			fatal("register serial port", "err", err)
 		}
 
 		if err := serialPHY.Start(ctx); err != nil {
-			log.Fatalf("start serial PHY: %v", err)
+			fatal("start serial PHY", "err", err)
 		}
 		defer serialPHY.Stop()
 
@@ -370,7 +374,7 @@ func main() {
 			for f := range serialPHY.RxFrames() {
 				slog.Debug("serial rx", "frame", f)
 				if err := router.Send(f, serialPort); err != nil {
-					log.Printf("router rx: %v", err)
+					slog.Error("router rx", "err", err)
 				}
 			}
 		}()
@@ -396,23 +400,23 @@ func main() {
 		}
 		kissClientCfg.OnRxFrame = func(f *ax25.Frame) {
 			if err := router.Send(f, tcpClientPort); err != nil {
-				log.Printf("kiss client rx: %v", err)
+				slog.Error("kiss client rx", "err", err)
 			}
 		}
 
 		tcpPHY, err := phy.NewKISSTCPClientPHY(kissClientCfg)
 		if err != nil {
-			log.Fatalf("create KISS TCP client PHY: %v", err)
+			fatal("create KISS TCP client PHY", "err", err)
 		}
 
 		tcpClientPort.OnRxFrame = func(f *ax25.Frame) {
 			if err := tcpPHY.Send(f); err != nil {
-				log.Printf("kiss client tx: %v", err)
+				slog.Error("kiss client tx", "err", err)
 			}
 		}
 
 		if err := router.RegisterPort(tcpClientPort); err != nil {
-			log.Fatalf("register KISS TCP client port: %v", err)
+			fatal("register KISS TCP client port", "err", err)
 		}
 
 		tcpPHY.Start()
@@ -427,7 +431,7 @@ func main() {
 		var err error
 		kissListener, err = net.Listen("tcp", kissListenAddr)
 		if err != nil {
-			log.Fatalf("listen KISS TCP %s: %v", kissListenAddr, err)
+			fatal("listen KISS TCP", "addr", kissListenAddr, "err", err)
 		}
 		kissServerPortMode := ax25.PortModeDynamic
 		if kissServerPromiscuous {
@@ -453,7 +457,7 @@ func main() {
 			ServerConfig: agwpe.NewServerConfigFromConfig(cfg),
 		}, router)
 		if err := agwpeSrv.Start(); err != nil {
-			log.Fatalf("start AGWPE server: %v", err)
+			fatal("start AGWPE server", "err", err)
 		}
 		defer agwpeSrv.Stop()
 		slog.Info("AGWPE TCP server listening", "addr", agwpeAddr)

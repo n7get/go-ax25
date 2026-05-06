@@ -9,6 +9,6 @@ export GOAX25_MONITOR_ENABLED=true
 
 # Testing Pat <-> router <-> SoundModem on PC
 export GOAX25_KISS_CLIENT_ENABLED=true
-export GOAX25_KISS_CLIENT_HOST=192.168.68.11
+export GOAX25_KISS_CLIENT_HOST=192.168.68.162
 
 go run . -debug 2>&1 | tee router.log | cut -f3- -d' '

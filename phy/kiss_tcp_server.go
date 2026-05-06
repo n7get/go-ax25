@@ -17,7 +17,7 @@ type KISSTCPServerConn struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
-	UserData interface{}
+	UserData any
 }
 
 // Send encodes frame as KISS and enqueues it for transmission to this client.

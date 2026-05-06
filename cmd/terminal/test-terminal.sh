@@ -24,4 +24,8 @@
 #  -server string
 #    	override server host for -agwpe/-kiss
 #
-go run . -server 192.168.68.162 -local n7get k7ccn-1 relay
+if [ -z "$1" ]; then
+	set -- N7GET-1
+fi
+
+go run . -server 192.168.68.162 -local n7get $*
