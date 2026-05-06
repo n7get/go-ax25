@@ -341,7 +341,28 @@ const (
 	agwOutstandingPoll   = 200 * time.Millisecond
 	agwOutstandingWait   = 2 * time.Second
 	agwOutstandingSettle = 100 * time.Millisecond
+	disconnectWait       = 5 * time.Second
 )
+
+func waitForDisconnectAck(done <-chan struct{}) {
+	select {
+	case <-done:
+	case <-time.After(disconnectWait):
+	}
+}
+
+func waitForConnectedOrDone(connected, done <-chan struct{}) bool {
+	select {
+	case <-connected:
+		return true
+	case <-done:
+		return false
+	}
+}
+
+func shouldPaceStdin() bool {
+	return !stdinIsTTY()
+}
 
 func splitPayload(data []byte, maxChunk int) [][]byte {
 	if len(data) <= maxChunk {
@@ -393,14 +414,16 @@ func echoPayloads(payloads [][]byte) {
 }
 
 type connSession struct {
-	conn         *ax25.Conn
-	router       *ax25.Router
-	appPort      *ax25.Port
-	doneCh       chan struct{}
-	onceDone     sync.Once
-	connected    atomic.Bool
-	remote       atomic.Value // string
-	disconnectCh chan struct{}
+	conn          *ax25.Conn
+	router        *ax25.Router
+	appPort       *ax25.Port
+	doneCh        chan struct{}
+	onceDone      sync.Once
+	connectedCh   chan struct{}
+	onceConnected sync.Once
+	connected     atomic.Bool
+	remote        atomic.Value // string
+	disconnectCh  chan struct{}
 }
 
 func newConnSession(local ax25.Address, router *ax25.Router, appPort *ax25.Port, connCfg *ax25.ConnConfig) (*connSession, error) {
@@ -408,12 +431,14 @@ func newConnSession(local ax25.Address, router *ax25.Router, appPort *ax25.Port,
 		router:       router,
 		appPort:      appPort,
 		doneCh:       make(chan struct{}),
+		connectedCh:  make(chan struct{}),
 		disconnectCh: make(chan struct{}),
 	}
 	conn, err := ax25.NewConn(local, ax25.ConnCallbacks{
 		OnConnect: func(remote ax25.Address, _ bool) {
 			s.connected.Store(true)
 			s.remote.Store(remote.String())
+			s.onceConnected.Do(func() { close(s.connectedCh) })
 			fmt.Fprintf(os.Stderr, "connected: %s\n", remote.String())
 		},
 		OnDisconnect: func() {
@@ -445,6 +470,10 @@ func newConnSession(local ax25.Address, router *ax25.Router, appPort *ax25.Port,
 }
 
 func (s *connSession) runStdin() {
+	if !waitForConnectedOrDone(s.connectedCh, s.doneCh) {
+		return
+	}
+	paced := shouldPaceStdin()
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
 		line := sc.Text()
@@ -467,10 +496,17 @@ func (s *connSession) runStdin() {
 		if err := sendConnPayloads(s.conn, payloads); err != nil {
 			fmt.Fprintf(os.Stderr, "send failed: %v\n", err)
 		}
+		if paced {
+			time.Sleep(fileBurstLineDelay)
+		}
 	}
 	if err := sc.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "stdin error: %v\n", err)
+		return
 	}
+	slog.Info("stdin EOF, disconnecting")
+	_ = s.conn.Shutdown()
+	close(s.disconnectCh)
 }
 
 func runConnTerminalCore(s *connSession, remote *ax25.Address, via []ax25.Address) error {
@@ -492,10 +528,12 @@ func runConnTerminalCore(s *connSession, remote *ax25.Address, via []ax25.Addres
 	case <-s.doneCh:
 		return nil
 	case <-s.disconnectCh:
+		waitForDisconnectAck(s.doneCh)
 		return nil
 	case sig := <-sigCh:
 		fmt.Fprintf(os.Stderr, "signal received: %s\n", sig.String())
 		_ = s.conn.Shutdown()
+		waitForDisconnectAck(s.doneCh)
 		return nil
 	}
 }
@@ -658,6 +696,7 @@ func runKISSTCPTerminal(cfg *ax25.Config, args cliArgs, local, remote ax25.Addre
 	case <-session.doneCh:
 		return nil
 	case <-session.disconnectCh:
+		waitForDisconnectAck(session.doneCh)
 		return nil
 	}
 }
@@ -676,13 +715,15 @@ func waitForKISSTCPConnected(kissPHY *phy.KISSTCPClientPHY, timeout time.Duratio
 }
 
 type agwSession struct {
-	client    *agwpe.Client
-	local     string
-	remote    atomic.Value // string
-	connected atomic.Bool
-	doneCh    chan struct{}
-	onceDone  sync.Once
-	outCh     chan uint32
+	client        *agwpe.Client
+	local         string
+	remote        atomic.Value // string
+	connected     atomic.Bool
+	doneCh        chan struct{}
+	onceDone      sync.Once
+	connectedCh   chan struct{}
+	onceConnected sync.Once
+	outCh         chan uint32
 }
 
 func runAGWPETerminal(cfg *ax25.Config, args cliArgs, local ax25.Address, remote *ax25.Address, via []ax25.Address) error {
@@ -696,9 +737,10 @@ func runAGWPETerminal(cfg *ax25.Config, args cliArgs, local ax25.Address, remote
 	agwCfg.ReconnectDelay = 24 * time.Hour
 
 	s := &agwSession{
-		local:  local.String(),
-		doneCh: make(chan struct{}),
-		outCh:  make(chan uint32, 1),
+		local:       local.String(),
+		doneCh:      make(chan struct{}),
+		connectedCh: make(chan struct{}),
+		outCh:       make(chan uint32, 1),
 	}
 	agwCfg.OnRxFrame = func(f *agwpe.Frame) { s.onFrame(f) }
 	agwCfg.OnError = func(err error) {
@@ -750,6 +792,7 @@ func runAGWPETerminal(cfg *ax25.Config, args cliArgs, local ax25.Address, remote
 		if s.connected.Load() {
 			_ = s.disconnect()
 		}
+		waitForDisconnectAck(s.doneCh)
 		return nil
 	}
 }
@@ -764,6 +807,7 @@ func (s *agwSession) onFrame(f *agwpe.Frame) {
 		if !s.connected.Load() {
 			s.remote.Store(incoming)
 			s.connected.Store(true)
+			s.onceConnected.Do(func() { close(s.connectedCh) })
 			fmt.Fprintf(os.Stderr, "connected: %s\n", incoming)
 			return
 		}
@@ -805,6 +849,10 @@ func (s *agwSession) onFrame(f *agwpe.Frame) {
 }
 
 func (s *agwSession) stdinLoop() {
+	if !waitForConnectedOrDone(s.connectedCh, s.doneCh) {
+		return
+	}
+	paced := shouldPaceStdin()
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {
 		line := sc.Text()
@@ -831,10 +879,17 @@ func (s *agwSession) stdinLoop() {
 		if err := s.sendPayloads(remote, payloads); err != nil {
 			fmt.Fprintf(os.Stderr, "send failed: %v\n", err)
 		}
+		if paced {
+			time.Sleep(fileBurstLineDelay)
+		}
 	}
 	if err := sc.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "stdin error: %v\n", err)
+		return
 	}
+	slog.Info("stdin EOF, disconnecting")
+	_ = s.disconnect()
+	s.onceDone.Do(func() { close(s.doneCh) })
 }
 
 func (s *agwSession) disconnect() error {
@@ -944,6 +999,14 @@ func normalizeInbound(data []byte) []byte {
 		s = strings.ReplaceAll(s, "\n", nativeLineEnding())
 	}
 	return []byte(s)
+}
+
+func stdinIsTTY() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return true
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
 func nativeLineEnding() string {
