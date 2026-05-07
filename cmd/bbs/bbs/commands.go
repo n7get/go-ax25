@@ -43,7 +43,7 @@ func (m *SessionManager) cmdHelp(sess *Session) {
 		"  H           Show this help text\r" +
 		"  I           Show BBS station information\r" +
 		"  J           Show heard list\r" +
-		"  K <n>       Delete message n (own or sysop)\r" +
+		"  K <n>       Delete message n\r" +
 		"  L           List readable messages\r" +
 		"  LL [n]      List newest n readable messages\r" +
 		"  LM          List only my sent/received messages\r" +
@@ -283,7 +283,7 @@ func (m *SessionManager) cmdKill(sess *Session, arg string) {
 		return
 	}
 
-	if !sess.IsSysop && idx.From != sess.BaseCall {
+	if !sess.IsSysop && idx.From != sess.BaseCall && idx.To != sess.BaseCall {
 		m.sendText(sess, "*** Kill denied\r")
 		return
 	}
