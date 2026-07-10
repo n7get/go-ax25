@@ -25,6 +25,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/n7get/go-ax25/agwpe"
 	"github.com/n7get/go-ax25/ax25"
@@ -488,6 +489,12 @@ func main() {
 	}
 
 	slog.Info("router shutting down")
+	// Safety net: if cleanup hangs, force-exit after a timeout.
+	go func() {
+		time.Sleep(10 * time.Second)
+		slog.Warn("shutdown timed out; forcing exit")
+		os.Exit(1)
+	}()
 	cancel()
 	if kissListener != nil {
 		kissListener.Close()

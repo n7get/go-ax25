@@ -172,6 +172,17 @@ func (p *KISSTCPServerPHY) handleConn(netConn net.Conn) {
 		}
 	}()
 
+	// Close netConn when the PHY is stopping so the read loop below unblocks.
+	connClosed := make(chan struct{})
+	defer close(connClosed)
+	go func() {
+		select {
+		case <-p.ctx.Done():
+			_ = netConn.Close()
+		case <-connClosed:
+		}
+	}()
+
 	decoder := ax25.NewKISSDecoder(func(portNum, cmd uint8, data []byte) {
 		if cmd != 0 {
 			return
